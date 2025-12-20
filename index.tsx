@@ -289,6 +289,14 @@ const App = () => {
     check();
   }, []);
 
+  const handleReturnHome = () => {
+    if (confirm("确定返回首页吗？未保存的内容将会丢失。")) {
+      setPlan([]);
+      setSlides([]);
+      setStep('input');
+    }
+  };
+
   const handleConfigSubmit = async () => {
     if (!inputState.text.trim()) return alert("请先输入内容或链接");
     
@@ -528,17 +536,44 @@ const App = () => {
 
         {step === 'preview' && (
           <div className="max-w-7xl mx-auto animate-in fade-in duration-700">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-              <h2 className="text-2xl font-bold">生成预览</h2>
-              <div className="flex flex-wrap gap-4">
-                <button onClick={() => setStep('planning')} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition">调整大纲</button>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 bg-gray-900/50 p-6 rounded-2xl border border-gray-800">
+              <div>
+                <h2 className="text-2xl font-bold">生成预览</h2>
+                <p className="text-sm text-gray-500 mt-1">幻灯片已就绪，您可以导出文件或返回进行微调。</p>
+              </div>
+              
+              <div className="flex flex-wrap items-center gap-4">
+                {/* Navigation Controls */}
+                <div className="flex bg-gray-800 p-1 rounded-xl border border-gray-700">
+                  <button 
+                    onClick={handleReturnHome}
+                    title="返回首页重新开始"
+                    className="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition flex items-center gap-2"
+                  >
+                    <i className="fa-solid fa-house"></i> 首页
+                  </button>
+                  <button 
+                    onClick={() => setStep('planning')}
+                    title="返回上一步修改大纲"
+                    className="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition flex items-center gap-2 border-l border-gray-700"
+                  >
+                    <i className="fa-solid fa-arrow-left"></i> 返回大纲
+                  </button>
+                </div>
+
+                {/* Export Controls */}
                 <div className="flex gap-2">
-                  <button onClick={() => handleExport('pdf')} className="px-4 py-2 text-sm bg-red-600/20 text-red-400 border border-red-600/50 rounded-lg hover:bg-red-600/30 transition">PDF</button>
-                  <button onClick={() => handleExport('ppt')} className="px-4 py-2 text-sm bg-orange-600/20 text-orange-400 border border-orange-600/50 rounded-lg hover:bg-orange-600/30 transition">PPT</button>
+                  <button onClick={() => handleExport('pdf')} className="px-4 py-2 text-sm bg-red-600/20 text-red-400 border border-red-600/50 rounded-xl hover:bg-red-600/30 transition flex items-center gap-2">
+                    <i className="fa-solid fa-file-pdf"></i> PDF
+                  </button>
+                  <button onClick={() => handleExport('ppt')} className="px-4 py-2 text-sm bg-orange-600/20 text-orange-400 border border-orange-600/50 rounded-xl hover:bg-orange-600/30 transition flex items-center gap-2">
+                    <i className="fa-solid fa-file-powerpoint"></i> PPTX
+                  </button>
                 </div>
               </div>
             </div>
-            <div className={`grid grid-cols-1 ${inputState.aspectRatio === '16:9' ? 'md:grid-cols-2 lg:grid-cols-3' : 'sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4'} gap-6`}>
+
+            <div className={`grid grid-cols-1 ${inputState.aspectRatio === '16:9' ? 'md:grid-cols-2 lg:grid-cols-3' : 'sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4'} gap-6 mb-12`}>
               {slides.map((s, i) => (
                 <div key={s.id} className={`group relative rounded-xl bg-gray-800 border border-gray-700 overflow-hidden ${getAspectClass(inputState.aspectRatio)} shadow-lg hover:shadow-indigo-500/10 transition-shadow`}>
                   {s.status === 'generating' ? (
@@ -566,6 +601,25 @@ const App = () => {
                   <div className="absolute bottom-2 right-2 px-2 py-0.5 bg-black/50 rounded text-[10px] font-mono backdrop-blur-sm">P.{i+1}</div>
                 </div>
               ))}
+            </div>
+
+            {/* Bottom Navigation for better UX */}
+            <div className="flex flex-col items-center justify-center gap-6 py-12 border-t border-gray-800 mt-12">
+               <div className="text-gray-400 text-sm">完成了您的创作？</div>
+               <div className="flex gap-4">
+                  <button 
+                    onClick={handleReturnHome}
+                    className="px-8 py-3 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-xl transition flex items-center gap-2 border border-gray-700"
+                  >
+                    <i className="fa-solid fa-house"></i> 返回首页
+                  </button>
+                  <button 
+                    onClick={() => setStep('planning')}
+                    className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition flex items-center gap-2 shadow-lg shadow-indigo-600/20"
+                  >
+                    <i className="fa-solid fa-arrow-left"></i> 返回修改大纲
+                  </button>
+               </div>
             </div>
           </div>
         )}
