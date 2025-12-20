@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -7,7 +8,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 interface SlidePlan {
   id: number;
   title: string;
-  content: string; // Bullet points or short paragraph
+  content: string;
   visualDescription: string;
 }
 
@@ -19,6 +20,7 @@ interface SlideImage {
   errorMsg?: string;
 }
 
+type AspectRatio = '16:9' | '4:3' | '1:1' | '3:4' | '9:16';
 type AppStep = 'input' | 'planning' | 'generating' | 'preview';
 
 // --- Constants ---
@@ -29,22 +31,21 @@ const STYLES = [
   { id: 'creative_vibrant', name: '创意多彩', prompt: 'Vibrant and creative, bold colors, artistic shapes, playful but legible typography, modern art direction.' },
   { id: 'editorial_clean', name: '杂志留白', prompt: 'High-end editorial design, ample whitespace, serif headings, elegant photography integration, sophisticated layout.' },
   { id: 'hand_drawn', name: '手绘风格', prompt: 'Hand-drawn illustration style, sketchbook texture, marker font, friendly and approachable vibe, pastel colors.' },
-  // Custom style logic handled in component
 ];
 
 const DETAIL_LEVELS = [
   { id: 'concise', name: '精简 (关键词)', description: '每页仅保留核心标题和极少量关键词。' },
-  { id: 'moderate', name: '适中 (大纲)', description: '包含标题和3-5个关键点。' },
+  { id: 'moderate', name: '适中 (大纲)', description: '包含标题 and 3-5个关键点。' },
   { id: 'detailed', name: '详尽 (段落)', description: '包含较详细的解释性文本。' },
 ];
 
-// --- Helper Functions ---
-
-const getAI = () => {
-  // Always create a new instance to ensure fresh state if needed, though mostly stateless.
-  // Using process.env.API_KEY as strictly required.
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
-};
+const RATIO_OPTIONS: { id: AspectRatio; name: string; icon: string }[] = [
+  { id: '16:9', name: '宽屏 16:9', icon: 'fa-desktop' },
+  { id: '4:3', name: '标准 4:3', icon: 'fa-tv' },
+  { id: '1:1', name: '正方形 1:1', icon: 'fa-square' },
+  { id: '3:4', name: '书籍 3:4', icon: 'fa-book-open' },
+  { id: '9:16', name: '竖屏 9:16', icon: 'fa-mobile-screen' },
+];
 
 // --- Components ---
 
@@ -58,127 +59,67 @@ const Header = () => (
         NanoDeck AI
       </h1>
     </div>
-    <div className="text-sm text-gray-500">
-      Powered by Gemini 3 Pro
-    </div>
+    <div className="text-sm text-gray-500">Powered by Gemini 3 Pro</div>
   </header>
 );
 
-const AuthScreen = ({ onConnect }: { onConnect: () => void }) => (
-  <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-4">
-    <div className="max-w-md text-center space-y-6">
-      <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-indigo-500/30">
-        <i className="fa-solid fa-key text-2xl"></i>
+const LoadingOverlay = ({ message }: { message: string }) => (
+  <div className="fixed inset-0 z-[100] bg-gray-950/80 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
+    <div className="relative w-24 h-24 mb-8">
+      <div className="absolute inset-0 border-4 border-indigo-500/20 rounded-full"></div>
+      <div className="absolute inset-0 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="absolute inset-4 bg-indigo-500/10 rounded-full flex items-center justify-center">
+        <i className="fa-solid fa-brain text-2xl text-indigo-400 animate-pulse"></i>
       </div>
-      <h1 className="text-3xl font-bold">需要访问权限</h1>
-      <p className="text-gray-400">
-        为了使用 <strong>Gemini 3 Pro (Nano Banana Pro)</strong> 生成高分辨率幻灯片，您需要连接一个启用了计费的 Google Cloud 项目 API 密钥。
-      </p>
-      <div className="bg-gray-800 p-4 rounded-lg text-sm text-left border border-gray-700">
-        <p className="mb-2"><i className="fa-solid fa-circle-info text-indigo-400 mr-2"></i>说明：</p>
-        <ul className="list-disc list-inside space-y-1 text-gray-300">
-           <li>此模型支持生成 2K 高清图片。</li>
-           <li>必须在 Google AI Studio 中选择付费项目。</li>
-           <li><a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-indigo-400 underline">了解关于计费的更多信息</a></li>
-        </ul>
-      </div>
-      <button 
-        onClick={onConnect}
-        className="w-full py-3 bg-white text-gray-900 font-bold rounded-lg hover:bg-gray-100 transition shadow-lg flex items-center justify-center gap-2"
-      >
-        <i className="fa-brands fa-google"></i> 连接 API 密钥
-      </button>
+    </div>
+    <h3 className="text-2xl font-bold text-white mb-2">AI 深度规划中</h3>
+    <p className="text-gray-400 max-w-md leading-relaxed">{message}</p>
+    <div className="mt-8 flex gap-2">
+      <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+      <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+      <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"></div>
     </div>
   </div>
 );
 
-const StepIndicator = ({ currentStep }: { currentStep: AppStep }) => {
-  const steps: AppStep[] = ['input', 'planning', 'generating', 'preview'];
-  const labels = ['内容源', '大纲规划', '视觉生成', '预览导出'];
-
-  return (
-    <div className="flex justify-center py-6">
-      <div className="flex items-center gap-2">
-        {steps.map((s, idx) => (
-          <React.Fragment key={s}>
-            <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium transition-colors ${
-              steps.indexOf(currentStep) >= idx ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-500'
-            }`}>
-              <span className="w-5 h-5 flex items-center justify-center rounded-full bg-black/20 text-xs">
-                {idx + 1}
-              </span>
-              {labels[idx]}
-            </div>
-            {idx < steps.length - 1 && (
-              <div className={`w-8 h-0.5 ${steps.indexOf(currentStep) > idx ? 'bg-indigo-600' : 'bg-gray-800'}`} />
-            )}
-          </React.Fragment>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const InputSection = ({ onNext }: { onNext: (data: any) => void }) => {
-  const [text, setText] = useState('');
-  const [slideCount, setSlideCount] = useState(5);
-  const [selectedStyleId, setSelectedStyleId] = useState(STYLES[0].id);
-  const [customStylePrompt, setCustomStylePrompt] = useState('');
-  const [detailLevel, setDetailLevel] = useState(DETAIL_LEVELS[1]);
+const InputSection = ({ 
+  state, 
+  setState, 
+  onNext 
+}: { 
+  state: any; 
+  setState: (s: any) => void; 
+  onNext: () => void;
+}) => {
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [urlInput, setUrlInput] = useState('');
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (file.type === 'text/plain' || file.name.endsWith('.md')) {
-      const reader = new FileReader();
-      reader.onload = (ev) => setText(prev => (prev ? prev + '\n\n' : '') + (ev.target?.result as string));
-      reader.readAsText(file);
-    } else {
-      alert("当前演示环境主要支持 .txt / .md 文件。请直接粘贴 PDF/Word 内容到文本框以获得最佳效果。");
-    }
+    const reader = new FileReader();
+    reader.onload = (ev) => setState({ ...state, text: (state.text ? state.text + '\n\n' : '') + (ev.target?.result as string) });
+    reader.readAsText(file);
   };
 
   const addUrlToText = () => {
     if (!urlInput.trim()) return;
-    const newText = (text ? text + '\n\n' : '') + `Source URL: ${urlInput}\n(Please analyze the content from this link)`;
-    setText(newText);
+    setState({ ...state, text: (state.text ? state.text + '\n\n' : '') + `Source URL: ${urlInput}` });
     setUrlInput('');
     setShowUrlInput(false);
   };
 
-  const handleSubmit = () => {
-    if (!text.trim()) return alert("请输入内容或导入文件/链接");
-    
-    let styleObj;
-    if (selectedStyleId === 'custom') {
-      if (!customStylePrompt.trim()) return alert("请输入自定义风格描述");
-      styleObj = { 
-        id: 'custom', 
-        name: '自定义风格', 
-        prompt: `Custom artistic style based on user description: "${customStylePrompt}". Creative, unique, consistent visual theme.` 
-      };
-    } else {
-      styleObj = STYLES.find(s => s.id === selectedStyleId);
-    }
-
-    onNext({ text, slideCount, style: styleObj, detail: detailLevel });
-  };
-
   return (
-    <div className="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl border border-gray-700 shadow-2xl">
+    <div className="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl border border-gray-700 shadow-2xl animate-in fade-in zoom-in-95 duration-300">
       <h2 className="text-2xl font-semibold mb-6">配置您的演示文稿</h2>
 
-      {/* Source Input */}
       <div className="mb-8">
-        <label className="block text-gray-400 text-sm font-medium mb-2">输入源内容</label>
+        <label className="block text-gray-400 text-sm font-medium mb-2">输入源内容 (支持粘贴内容或链接)</label>
         <textarea
-          className="w-full h-48 bg-gray-900 border border-gray-700 rounded-lg p-4 text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-none"
-          placeholder="在此粘贴文章、报告、笔记内容..."
-          value={text}
-          onChange={(e) => setText(e.target.value)}
+          className="w-full h-48 bg-gray-900 border border-gray-700 rounded-lg p-4 text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-none transition-all"
+          placeholder="在此粘贴文章内容、报告、或者通过下方按钮导入链接..."
+          value={state.text}
+          onChange={(e) => setState({ ...state, text: e.target.value })}
         ></textarea>
         
         <div className="mt-3 flex justify-end gap-3">
@@ -186,79 +127,88 @@ const InputSection = ({ onNext }: { onNext: (data: any) => void }) => {
             <div className="flex-1 flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-2">
               <input 
                 type="text" 
+                autoFocus
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
                 placeholder="https://example.com/article"
                 className="flex-1 bg-transparent border-none outline-none text-sm text-white py-2"
                 onKeyDown={(e) => e.key === 'Enter' && addUrlToText()}
               />
-              <button onClick={addUrlToText} className="text-indigo-400 hover:text-white text-sm font-medium">
-                确认
-              </button>
-              <button onClick={() => setShowUrlInput(false)} className="text-gray-500 hover:text-gray-300">
-                <i className="fa-solid fa-xmark"></i>
-              </button>
+              <button onClick={addUrlToText} className="text-indigo-400 hover:text-white text-sm font-medium">确认</button>
+              <button onClick={() => setShowUrlInput(false)} className="text-gray-500 hover:text-gray-300"><i className="fa-solid fa-xmark"></i></button>
             </div>
           ) : (
             <button 
               onClick={() => setShowUrlInput(true)}
               className="text-sm text-indigo-400 hover:text-indigo-300 flex items-center gap-1 px-3 py-1.5 rounded hover:bg-gray-700/50 transition"
             >
-              <i className="fa-solid fa-link"></i> 导入网站链接 (URL)
+              <i className="fa-solid fa-link"></i> 导入链接
             </button>
           )}
 
           <label className="cursor-pointer text-sm text-indigo-400 hover:text-indigo-300 flex items-center gap-1 px-3 py-1.5 rounded hover:bg-gray-700/50 transition">
-            <i className="fa-solid fa-paperclip"></i> 导入本地文本/MD
+            <i className="fa-solid fa-paperclip"></i> 导入文件
             <input type="file" className="hidden" accept=".txt,.md" onChange={handleFileUpload} />
           </label>
         </div>
       </div>
 
-      {/* Settings Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div>
-          <label className="block text-gray-400 text-sm font-medium mb-2">幻灯片页数 (3-40页)</label>
-          <div className="flex items-center gap-4 bg-gray-900 p-2 rounded-lg border border-gray-700">
-            <input 
-              type="range" 
-              min="3" 
-              max="40" 
-              value={slideCount} 
-              onChange={(e) => setSlideCount(parseInt(e.target.value))}
-              className="flex-1 accent-indigo-500 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-            />
-            <span className="w-12 text-center font-mono text-lg text-white">{slideCount}</span>
+        <div className="col-span-1 md:col-span-2">
+          <label className="block text-gray-400 text-sm font-medium mb-2">页面比例</label>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-gray-900 rounded-lg border border-gray-700 p-1">
+            {RATIO_OPTIONS.map((ratio) => (
+              <button
+                key={ratio.id}
+                onClick={() => setState({ ...state, aspectRatio: ratio.id })}
+                className={`flex flex-col items-center justify-center gap-1 py-2 text-xs rounded-md transition-all ${
+                  state.aspectRatio === ratio.id ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                <i className={`fa-solid ${ratio.icon} text-base`}></i>
+                {ratio.name}
+              </button>
+            ))}
           </div>
         </div>
 
         <div>
-           <label className="block text-gray-400 text-sm font-medium mb-2">内容详细度</label>
-           <div className="flex bg-gray-900 rounded-lg border border-gray-700 p-1">
-             {DETAIL_LEVELS.map(level => (
-               <button
-                 key={level.id}
-                 onClick={() => setDetailLevel(level)}
-                 className={`flex-1 py-1.5 text-xs rounded-md transition-colors ${detailLevel.id === level.id ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-               >
-                 {level.name.split(' ')[0]}
-               </button>
-             ))}
-           </div>
-           <p className="text-xs text-gray-500 mt-1">{detailLevel.description}</p>
+          <label className="block text-gray-400 text-sm font-medium mb-2">幻灯片页数 ({state.slideCount}页)</label>
+          <div className="flex items-center gap-4 bg-gray-900 p-2 rounded-lg border border-gray-700 h-10">
+            <input 
+              type="range" min="3" max="40" 
+              value={state.slideCount} 
+              onChange={(e) => setState({ ...state, slideCount: parseInt(e.target.value) })}
+              className="flex-1 accent-indigo-500 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-gray-400 text-sm font-medium mb-2">内容详细度</label>
+          <div className="flex bg-gray-900 rounded-lg border border-gray-700 p-1 h-10">
+            {DETAIL_LEVELS.map(level => (
+              <button
+                key={level.id}
+                onClick={() => setState({ ...state, detailLevelId: level.id })}
+                className={`flex-1 text-[10px] sm:text-xs rounded-md transition-colors ${state.detailLevelId === level.id ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+              >
+                {level.name.split(' ')[0]}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Style Selection */}
       <div className="mb-8">
         <label className="block text-gray-400 text-sm font-medium mb-2">视觉风格</label>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {STYLES.map(style => (
             <button
               key={style.id}
-              onClick={() => setSelectedStyleId(style.id)}
+              onClick={() => setState({ ...state, selectedStyleId: style.id })}
               className={`p-3 rounded-lg border text-left transition-all ${
-                selectedStyleId === style.id 
+                state.selectedStyleId === style.id 
                   ? 'bg-indigo-900/30 border-indigo-500 ring-1 ring-indigo-500' 
                   : 'bg-gray-900 border-gray-700 hover:border-gray-500'
               }`}
@@ -272,14 +222,10 @@ const InputSection = ({ onNext }: { onNext: (data: any) => void }) => {
               <div className="text-xs font-medium text-gray-300">{style.name}</div>
             </button>
           ))}
-          
-          {/* Custom Style Button */}
           <button
-              onClick={() => setSelectedStyleId('custom')}
+              onClick={() => setState({ ...state, selectedStyleId: 'custom' })}
               className={`p-3 rounded-lg border text-left transition-all ${
-                selectedStyleId === 'custom'
-                  ? 'bg-indigo-900/30 border-indigo-500 ring-1 ring-indigo-500' 
-                  : 'bg-gray-900 border-gray-700 hover:border-gray-500'
+                state.selectedStyleId === 'custom' ? 'bg-indigo-900/30 border-indigo-500 ring-1 ring-indigo-500' : 'bg-gray-900 border-gray-700 hover:border-gray-500'
               }`}
             >
               <div className="w-full h-8 mb-2 rounded bg-gray-800 flex items-center justify-center border border-dashed border-gray-600">
@@ -289,14 +235,12 @@ const InputSection = ({ onNext }: { onNext: (data: any) => void }) => {
             </button>
         </div>
 
-        {/* Custom Style Input */}
-        {selectedStyleId === 'custom' && (
-          <div className="mt-3 animate-in fade-in slide-in-from-top-2 duration-300">
-            <label className="block text-xs text-indigo-400 mb-1">描述您想要的风格 (Prompt)</label>
+        {state.selectedStyleId === 'custom' && (
+          <div className="mt-3">
             <textarea
-              value={customStylePrompt}
-              onChange={(e) => setCustomStylePrompt(e.target.value)}
-              placeholder="例如：哆啦A梦卡通风格，色彩鲜艳，充满童趣；或者：赛博朋克风格，霓虹灯效..."
+              value={state.customStylePrompt}
+              onChange={(e) => setState({ ...state, customStylePrompt: e.target.value })}
+              placeholder="例如：极简中国风，水墨质感..."
               className="w-full h-20 bg-gray-900 border border-indigo-500/50 rounded-lg p-3 text-sm text-white focus:outline-none"
             />
           </div>
@@ -304,7 +248,7 @@ const InputSection = ({ onNext }: { onNext: (data: any) => void }) => {
       </div>
 
       <button 
-        onClick={handleSubmit}
+        onClick={onNext}
         className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold rounded-lg shadow-lg transform transition hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2"
       >
         <i className="fa-solid fa-wand-magic-sparkles"></i>
@@ -314,407 +258,133 @@ const InputSection = ({ onNext }: { onNext: (data: any) => void }) => {
   );
 };
 
-const PlanningSection = ({ plan, setPlan, onGenerateImages, onBack }: { plan: SlidePlan[], setPlan: any, onGenerateImages: () => void, onBack: () => void }) => {
-  const updateSlide = (index: number, field: keyof SlidePlan, value: string) => {
-    const newPlan = [...plan];
-    newPlan[index] = { ...newPlan[index], [field]: value };
-    setPlan(newPlan);
-  };
-
-  return (
-    <div className="max-w-5xl mx-auto h-[calc(100vh-200px)] flex flex-col">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-semibold">大纲规划</h2>
-        <div className="flex gap-3">
-           <button onClick={onBack} className="px-4 py-2 text-gray-400 hover:text-white transition-colors">
-            返回
-          </button>
-          <button 
-            onClick={onGenerateImages}
-            className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg shadow flex items-center gap-2"
-          >
-            <i className="fa-solid fa-paintbrush"></i>
-            确认并生成 PPT
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto pr-2 space-y-4">
-        {plan.map((slide, idx) => (
-          <div key={slide.id} className="bg-gray-800 rounded-lg p-4 border border-gray-700 flex gap-4">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center font-bold text-gray-400">
-              {idx + 1}
-            </div>
-            <div className="flex-1 space-y-3">
-              <div>
-                <label className="text-xs text-gray-500 uppercase tracking-wider">标题</label>
-                <input 
-                  type="text" 
-                  value={slide.title}
-                  onChange={(e) => updateSlide(idx, 'title', e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-white font-semibold focus:border-indigo-500 outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 uppercase tracking-wider">正文内容</label>
-                <textarea 
-                  value={slide.content}
-                  onChange={(e) => updateSlide(idx, 'content', e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-gray-300 text-sm focus:border-indigo-500 outline-none h-24 resize-y"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 uppercase tracking-wider">画面描述 (Visual Prompt)</label>
-                <input 
-                  type="text" 
-                  value={slide.visualDescription}
-                  onChange={(e) => updateSlide(idx, 'visualDescription', e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-gray-400 text-xs focus:border-indigo-500 outline-none"
-                />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const EditorModal = ({ 
-  isOpen, 
-  onClose, 
-  slideImage, 
-  slidePlan, 
-  onRegenerate, 
-  styleName 
-}: { 
-  isOpen: boolean;
-  onClose: () => void;
-  slideImage: SlideImage;
-  slidePlan: SlidePlan;
-  onRegenerate: (id: number, customPrompt: string) => void;
-  styleName: string;
-}) => {
-  const [prompt, setPrompt] = useState('');
-
-  useEffect(() => {
-    if (isOpen) {
-      // Initialize with existing prompt or construct a readable one
-      setPrompt(slideImage.prompt || slidePlan.visualDescription);
-    }
-  }, [isOpen, slideImage, slidePlan]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-gray-900 rounded-2xl w-full max-w-6xl h-[85vh] flex overflow-hidden border border-gray-700 shadow-2xl">
-        {/* Left: Image View */}
-        <div className="w-2/3 bg-black flex items-center justify-center relative border-r border-gray-800">
-           {slideImage.status === 'generating' ? (
-             <div className="text-center">
-                <i className="fa-solid fa-circle-notch fa-spin text-4xl text-indigo-500 mb-4"></i>
-                <p className="text-gray-400">Gemini 正在重绘...</p>
-             </div>
-           ) : slideImage.base64 ? (
-             <img src={slideImage.base64} className="max-w-full max-h-full object-contain shadow-2xl" />
-           ) : (
-             <div className="text-center px-4">
-                <div className="text-red-400 text-lg mb-2"><i className="fa-solid fa-triangle-exclamation"></i> 图片加载失败</div>
-                <div className="text-gray-500 text-sm">{slideImage.errorMsg || "未知错误"}</div>
-             </div>
-           )}
-           
-           <button onClick={onClose} className="absolute top-4 left-4 bg-black/50 hover:bg-black/70 text-white rounded-full w-10 h-10 flex items-center justify-center transition">
-             <i className="fa-solid fa-xmark"></i>
-           </button>
-        </div>
-
-        {/* Right: Controls */}
-        <div className="w-1/3 flex flex-col p-6 bg-gray-800">
-          <h3 className="text-xl font-bold mb-1">编辑幻灯片 {slideImage.id}</h3>
-          <p className="text-sm text-gray-500 mb-6">风格: {styleName}</p>
-
-          <div className="flex-1 overflow-y-auto space-y-6">
-            <div>
-              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                当前文字内容 (只读)
-              </label>
-              <div className="bg-gray-900 p-3 rounded border border-gray-700 text-sm text-gray-300">
-                <div className="font-bold mb-1">{slidePlan.title}</div>
-                <div className="whitespace-pre-wrap">{slidePlan.content}</div>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">如需修改文字，请回到大纲规划阶段，或者直接在下方提示词中强调。</p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                修改生成提示词 (Prompt)
-              </label>
-              <textarea 
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                className="w-full h-40 bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-200 text-sm focus:border-indigo-500 outline-none resize-none"
-                placeholder="描述你想要的画面，或者修改排版要求..."
-              />
-            </div>
-          </div>
-
-          <div className="mt-6 pt-6 border-t border-gray-700">
-            <button 
-              onClick={() => onRegenerate(slideImage.id, prompt)}
-              disabled={slideImage.status === 'generating'}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition flex items-center justify-center gap-2"
-            >
-              {slideImage.status === 'generating' ? (
-                <>
-                  <i className="fa-solid fa-spinner fa-spin"></i> 处理中...
-                </>
-              ) : (
-                <>
-                  <i className="fa-solid fa-rotate-right"></i> 重新生成此页
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const ResultsSection = ({ 
-  slides, 
-  plan, 
-  onEditSlide, 
-  onExport 
-}: { 
-  slides: SlideImage[]; 
-  plan: SlidePlan[];
-  onEditSlide: (id: number) => void;
-  onExport: (type: 'pdf' | 'ppt') => void;
-}) => {
-  return (
-    <div className="max-w-7xl mx-auto pb-12">
-      <div className="flex items-center justify-between mb-8">
-        <h2 className="text-2xl font-semibold">生成结果预览</h2>
-        <div className="flex gap-3">
-          <button 
-            onClick={() => onExport('pdf')}
-            className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 hover:text-red-300 border border-red-600/50 rounded-lg transition flex items-center gap-2"
-          >
-            <i className="fa-solid fa-file-pdf"></i> 导出 PDF
-          </button>
-          <button 
-            onClick={() => onExport('ppt')}
-            className="px-4 py-2 bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 hover:text-orange-300 border border-orange-600/50 rounded-lg transition flex items-center gap-2"
-          >
-            <i className="fa-solid fa-file-powerpoint"></i> 导出 PPT
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {slides.map((slide, idx) => (
-          <div key={slide.id} className="group relative aspect-video bg-gray-800 rounded-xl border border-gray-700 shadow-lg overflow-hidden hover:border-indigo-500 transition-colors">
-            {slide.status === 'done' && slide.base64 ? (
-              <img src={slide.base64} alt={`Slide ${slide.id}`} className="w-full h-full object-cover" />
-            ) : slide.status === 'error' ? (
-              <div className="w-full h-full flex flex-col items-center justify-center text-red-400 p-4 text-center bg-gray-900/50">
-                 <i className="fa-solid fa-triangle-exclamation text-3xl mb-2"></i>
-                 <p className="font-bold">生成失败</p>
-                 <p className="text-xs text-red-300 mt-1 max-w-[80%]">{slide.errorMsg || "请重试或检查连接"}</p>
-              </div>
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-gray-500">
-                <i className="fa-solid fa-circle-notch fa-spin text-3xl mb-3 text-indigo-500"></i>
-                <p className="text-sm font-medium animate-pulse">
-                  {slide.status === 'pending' ? '等待处理...' : 'Nano Banana 正在绘制...'}
-                </p>
-              </div>
-            )}
-            
-            {/* Overlay Actions */}
-            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-              <button 
-                onClick={() => onEditSlide(slide.id)}
-                className="bg-white text-gray-900 px-4 py-2 rounded-full font-bold hover:bg-gray-200 transform hover:scale-105 transition"
-              >
-                <i className="fa-solid fa-pen-to-square mr-2"></i> 编辑 / 详情
-              </button>
-            </div>
-            
-            <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/70 rounded text-xs text-white font-mono pointer-events-none">
-              P.{idx + 1}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-// --- Main App ---
+// --- App Component ---
 
 const App = () => {
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [step, setStep] = useState<AppStep>('input');
-  const [config, setConfig] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('');
+  
+  // Persistent Input State
+  const [inputState, setInputState] = useState({
+    text: '',
+    slideCount: 5,
+    aspectRatio: '16:9' as AspectRatio,
+    selectedStyleId: STYLES[0].id,
+    customStylePrompt: '',
+    detailLevelId: DETAIL_LEVELS[1].id
+  });
+
   const [plan, setPlan] = useState<SlidePlan[]>([]);
   const [slides, setSlides] = useState<SlideImage[]>([]);
   const [editingSlideId, setEditingSlideId] = useState<number | null>(null);
 
   useEffect(() => {
-    checkKey();
+    const check = async () => {
+      if ((window as any).aistudio?.hasSelectedApiKey) {
+        setHasKey(await (window as any).aistudio.hasSelectedApiKey());
+      } else setHasKey(true);
+    };
+    check();
   }, []);
 
-  const checkKey = async () => {
-    try {
-      if ((window as any).aistudio && (window as any).aistudio.hasSelectedApiKey) {
-        const has = await (window as any).aistudio.hasSelectedApiKey();
-        setHasKey(has);
-      } else {
-        setHasKey(true); 
-      }
-    } catch (e) {
-      console.error(e);
-      setHasKey(false);
-    }
-  };
-
-  const handleConnectKey = async () => {
-    if ((window as any).aistudio && (window as any).aistudio.openSelectKey) {
-        await (window as any).aistudio.openSelectKey();
-        setHasKey(true);
-    }
-  };
-
-  // 1. Plan Generation
-  const handleConfigSubmit = async (data: any) => {
-    setConfig(data);
-    setStep('planning');
+  const handleConfigSubmit = async () => {
+    if (!inputState.text.trim()) return alert("请先输入内容或链接");
     
-    // Call Gemini Flash to generate JSON plan
-    const ai = getAI();
+    setIsLoading(true);
+    setLoadingMsg("正在分析您的内容，请稍候...");
+    
+    const styleObj = inputState.selectedStyleId === 'custom' 
+      ? { name: '自定义', prompt: inputState.customStylePrompt }
+      : STYLES.find(s => s.id === inputState.selectedStyleId);
+    
+    const detailObj = DETAIL_LEVELS.find(l => l.id === inputState.detailLevelId);
+
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `
-      You are a professional presentation architect.
-      Source Content: "${data.text.slice(0, 15000)}"
+      Presentation Architect Mode.
+      User wants a ${inputState.slideCount}-slide presentation.
+      Aspect Ratio: ${inputState.aspectRatio}.
+      Visual Style: ${styleObj?.prompt}.
+      Detail Level: ${detailObj?.name}.
       
-      Task: Create a ${data.slideCount}-slide presentation structure based on the source content.
-      Style: ${data.style.name}
-      Style Description (for visual context): ${data.style.prompt}
-      Detail Level: ${data.detail.name}
-      Language: Chinese (Simplified)
+      SOURCE CONTENT OR LINK:
+      "${inputState.text}"
 
-      Output MUST be a strict JSON array. No markdown, no backticks.
-      Format: [{"id": 1, "title": "...", "content": "...", "visualDescription": "..."}, ...]
-
-      Each object must have:
-      - id: number (1 to ${data.slideCount})
-      - title: string (The slide title, concise)
-      - content: string (The body text, bullet points or paragraph based on detail level. Max 100 words.)
-      - visualDescription: string (A highly detailed English prompt for an image generator describing the slide layout, background, and imagery that matches the provided style description. Do NOT include the text content in this description, only the visual elements.)
+      TASK: 
+      1. Analyze the content (use search tool if URL is provided).
+      2. Create a slide-by-slide plan that fits the ${inputState.aspectRatio} format.
+      3. For each slide, provide a Title, Content, and a detailed Visual Description (English prompt for image gen).
+      
+      Output format: STRICT JSON ARRAY of objects: 
+      [{"id": 1, "title": "...", "content": "...", "visualDescription": "..."}]
+      
+      Language: Chinese (Simplified).
     `;
 
     try {
-      // Check for URL-like content to conditionally enable Google Search
-      const hasUrl = data.text.includes('http://') || data.text.includes('https://') || data.text.includes('Source URL:');
-      const tools = hasUrl ? [{googleSearch: {}}] : undefined;
-
       const resp = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-pro-preview',
         contents: prompt,
-        config: {
-          // Do NOT use responseMimeType or responseSchema when googleSearch is enabled.
-          tools: tools,
+        config: { 
+          tools: inputState.text.includes('http') ? [{googleSearch: {}}] : undefined,
+          responseMimeType: "application/json"
         }
       });
       
-      if (resp.text) {
-        let cleanText = resp.text.trim();
-        // Remove markdown formatting if present
-        if (cleanText.startsWith('```json')) {
-            cleanText = cleanText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-        } else if (cleanText.startsWith('```')) {
-            cleanText = cleanText.replace(/^```\s*/, '').replace(/\s*```$/, '');
-        }
-
-        try {
-          const generatedPlan = JSON.parse(cleanText);
-          if (Array.isArray(generatedPlan)) {
-            setPlan(generatedPlan);
-          } else {
-            throw new Error("Invalid JSON structure");
-          }
-        } catch (parseError) {
-          console.error("JSON Parse Error:", parseError, cleanText);
-          alert("无法解析大纲，请重试。");
-          setStep('input');
-        }
-      }
-    } catch (e) {
+      const resText = resp.text.trim();
+      const generatedPlan = JSON.parse(resText);
+      setPlan(generatedPlan);
+      setStep('planning');
+    } catch (e: any) {
       console.error(e);
-      alert("大纲生成失败，请重试。");
-      setStep('input');
+      if (e.message?.includes("Requested entity was not found")) {
+        setHasKey(false);
+        alert("所选 API 密钥的项目未启用计费，请重新选择。");
+      } else {
+        alert("大纲规划失败。请检查内容或重试。");
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // 2. Image Generation (Batch)
   const handleStartGeneration = async () => {
     setStep('generating');
-    // Initialize slides with pending status
+    const styleObj = inputState.selectedStyleId === 'custom' 
+      ? { name: '自定义', prompt: inputState.customStylePrompt }
+      : STYLES.find(s => s.id === inputState.selectedStyleId);
+
     const initialSlides: SlideImage[] = plan.map(p => ({
       id: p.id,
       base64: null,
       status: 'pending',
-      prompt: constructPrompt(p, config.style)
+      prompt: `Create a professional ${inputState.aspectRatio} presentation slide. Style: ${styleObj?.prompt}. 
+               Visual elements: ${p.visualDescription}. 
+               REQUIRED: Render Title "${p.title}" and Content "${p.content}" in Chinese (Simplified).`
     }));
     setSlides(initialSlides);
-    
-    // Start processing queue (Serial to avoid rate limits, or small batch)
-    // We will do one by one for stability in this demo
-    setStep('preview'); // Move to preview immediately and update statuses there
+    setStep('preview');
     
     for (const slide of initialSlides) {
-      await generateSlideImage(slide.id, slide.prompt);
+      await generateSingleSlide(slide.id, slide.prompt);
     }
   };
 
-  const constructPrompt = (slide: SlidePlan, style: any) => {
-    // This prompt needs to be crafted for Gemini 3 Pro to render text
-    return `
-      Create a high-quality presentation slide image.
-      Aspect Ratio: 16:9.
-      Style: ${style.prompt}
-      
-      CRITICAL INSTRUCTION: You MUST RENDER the following text on the slide image clearly and legibly in Chinese (Simplified).
-      
-      Title: "${slide.title}"
-      Body Text: "${slide.content}"
-      
-      Layout: Professional presentation layout. Ensure high contrast between text and background. No typos.
-      Additional Visuals: ${slide.visualDescription}
-    `;
-  };
-
-  const generateSlideImage = async (id: number, prompt: string, retryCount = 0) => {
+  const generateSingleSlide = async (id: number, prompt: string, retry = 0) => {
+    // Force status to generating to trigger loading UI
     setSlides(prev => prev.map(s => s.id === id ? { ...s, status: 'generating' } : s));
     
-    const ai = getAI();
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     try {
       const resp = await ai.models.generateContent({
         model: 'gemini-3-pro-image-preview',
         contents: prompt,
-        config: {
-          imageConfig: {
-             aspectRatio: '16:9',
-             // Removed '2K' size to improve stability and avoid 500 errors
-          }
-        }
+        config: { imageConfig: { aspectRatio: inputState.aspectRatio } }
       });
-
+      
       let base64 = null;
-      // Extract image from parts
       if (resp.candidates?.[0]?.content?.parts) {
         for (const part of resp.candidates[0].content.parts) {
           if (part.inlineData) {
@@ -723,116 +393,234 @@ const App = () => {
           }
         }
       }
-
-      if (base64) {
-        setSlides(prev => prev.map(s => s.id === id ? { ...s, status: 'done', base64, prompt, errorMsg: undefined } : s));
-      } else {
-         throw new Error("No image data found");
-      }
+      if (base64) setSlides(prev => prev.map(s => s.id === id ? { ...s, status: 'done', base64, prompt } : s));
+      else throw new Error("No image data");
     } catch (e: any) {
-      console.error(`Slide ${id} failed (Attempt ${retryCount + 1})`, e);
-      
-      // Retry Logic for 5xx errors
-      if ((e.status >= 500 && e.status < 600) && retryCount < 2) {
-         console.log(`Retrying slide ${id}...`);
-         await new Promise(resolve => setTimeout(resolve, 2000 * (retryCount + 1)));
-         return generateSlideImage(id, prompt, retryCount + 1);
+      if (e.message?.includes("Requested entity was not found")) setHasKey(false);
+      if (e.status === 500 && retry < 2) {
+        await new Promise(r => setTimeout(r, 3000));
+        return generateSingleSlide(id, prompt, retry + 1);
       }
-
-      let errorMsg = "生成失败";
-      if (e.message?.includes('403') || e.status === 403 || e.message?.includes('PERMISSION_DENIED')) {
-          errorMsg = "权限拒绝：请检查 API Key 是否关联了付费项目。";
-      } else if (e.status === 500) {
-          errorMsg = "服务器忙 (500)，请稍后重试。";
-      }
-      setSlides(prev => prev.map(s => s.id === id ? { ...s, status: 'error', errorMsg } : s));
+      setSlides(prev => prev.map(s => s.id === id ? { ...s, status: 'error', errorMsg: "生成失败" } : s));
     }
   };
 
-  const handleRegenerateSlide = (id: number, customPrompt: string) => {
-    generateSlideImage(id, customPrompt);
-  };
-
-  const handleExport = async (type: 'pdf' | 'ppt') => {
+  const handleExport = (type: 'pdf' | 'ppt') => {
+    // Determine orientation for libraries
+    const ratio = inputState.aspectRatio;
+    
     if (type === 'ppt') {
       const pptx = new (window as any).PptxGenJS();
-      pptx.layout = 'LAYOUT_16x9';
       
-      slides.forEach(slide => {
-        const s = pptx.addSlide();
-        if (slide.base64) {
-          s.background = { data: slide.base64 };
-        } else {
-          s.addText("Image generation failed", { x: 1, y: 1 });
+      // Map ratios to PPTX layouts or custom definitions
+      if (ratio === '16:9') pptx.layout = 'LAYOUT_16x9';
+      else if (ratio === '4:3') pptx.layout = 'LAYOUT_4x3';
+      else if (ratio === '1:1') {
+        pptx.defineLayout({ name: 'SQUARE', width: 10, height: 10 });
+        pptx.layout = 'SQUARE';
+      } else if (ratio === '3:4') {
+        pptx.defineLayout({ name: 'PORTRAIT_3_4', width: 7.5, height: 10 });
+        pptx.layout = 'PORTRAIT_3_4';
+      } else if (ratio === '9:16') {
+        pptx.defineLayout({ name: 'PORTRAIT_9_16', width: 5.625, height: 10 });
+        pptx.layout = 'PORTRAIT_9_16';
+      }
+      
+      slides.forEach(s => {
+        if (s.base64) {
+          const slide = pptx.addSlide();
+          slide.background = { data: s.base64 };
         }
       });
-      
-      pptx.writeFile({ fileName: `NanoDeck-Presentation.pptx` });
+      pptx.writeFile({ fileName: `NanoDeck-${Date.now()}.pptx` });
     } else {
       const { jsPDF } = (window as any).jspdf;
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'px', format: [1920, 1080] });
       
-      slides.forEach((slide, index) => {
-        if (index > 0) doc.addPage();
-        if (slide.base64) {
-          doc.addImage(slide.base64, 'PNG', 0, 0, 1920, 1080);
-        }
+      // Calculate pixel dimensions for PDF based on ratios (base 1080p width/height)
+      let width = 1920, height = 1080, orientation: 'p' | 'l' = 'l';
+      
+      if (ratio === '16:9') { width = 1920; height = 1080; orientation = 'l'; }
+      else if (ratio === '4:3') { width = 1440; height = 1080; orientation = 'l'; }
+      else if (ratio === '1:1') { width = 1440; height = 1440; orientation = 'p'; }
+      else if (ratio === '3:4') { width = 1080; height = 1440; orientation = 'p'; }
+      else if (ratio === '9:16') { width = 1080; height = 1920; orientation = 'p'; }
+      
+      const doc = new jsPDF({ orientation, unit: 'px', format: [width, height] });
+      
+      slides.forEach((s, i) => {
+        if (i > 0) doc.addPage([width, height], orientation);
+        if (s.base64) doc.addImage(s.base64, 'PNG', 0, 0, width, height);
       });
-      
-      doc.save(`NanoDeck-Presentation.pdf`);
+      doc.save(`NanoDeck-${Date.now()}.pdf`);
     }
   };
 
-  if (hasKey === false) {
-    return <AuthScreen onConnect={handleConnectKey} />;
-  }
+  const getAspectClass = (ratio: AspectRatio) => {
+    switch (ratio) {
+      case '16:9': return 'aspect-video';
+      case '4:3': return 'aspect-[4/3]';
+      case '1:1': return 'aspect-square';
+      case '3:4': return 'aspect-[3/4]';
+      case '9:16': return 'aspect-[9/16]';
+      default: return 'aspect-video';
+    }
+  };
 
-  if (hasKey === null) {
-      return <div className="min-h-screen bg-gray-900 flex items-center justify-center text-gray-500">
-          <i className="fa-solid fa-circle-notch fa-spin text-2xl"></i>
-      </div>;
-  }
+  if (hasKey === false) return (
+    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center p-6 text-center">
+      <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center mb-6">
+        <i className="fa-solid fa-key text-3xl text-indigo-500"></i>
+      </div>
+      <h2 className="text-2xl font-bold mb-4">需要连接 API 密钥</h2>
+      <p className="text-gray-400 mb-8 max-w-sm">需使用付费 GCP 项目 API 密钥以访问 Gemini 3 Pro 系列模型。</p>
+      <button onClick={() => (window as any).aistudio.openSelectKey().then(() => setHasKey(true))} className="px-8 py-3 bg-indigo-600 rounded-xl font-bold shadow-lg transition hover:bg-indigo-500">连接密钥</button>
+    </div>
+  );
+  
+  if (hasKey === null) return null;
 
   return (
-    <div className="min-h-screen font-sans">
+    <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
       <Header />
+      {isLoading && <LoadingOverlay message={loadingMsg} />}
       
-      <main className="container mx-auto px-4">
-        <StepIndicator currentStep={step} />
-
-        {step === 'input' && (
-          <InputSection onNext={handleConfigSubmit} />
+      <main className="container mx-auto px-4 py-8">
+        {step !== 'preview' && (
+          <div className="flex justify-center mb-8">
+            <div className="flex items-center gap-4 text-xs sm:text-sm font-medium">
+              <span className={`px-3 py-1 rounded-full ${step === 'input' ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-500'}`}>1. 设置</span>
+              <div className="w-6 sm:w-8 h-px bg-gray-800"></div>
+              <span className={`px-3 py-1 rounded-full ${step === 'planning' ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-500'}`}>2. 大纲</span>
+              <div className="w-6 sm:w-8 h-px bg-gray-800"></div>
+              <span className={`px-3 py-1 rounded-full ${step === 'preview' ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-500'}`}>3. 生成</span>
+            </div>
+          </div>
         )}
 
+        {step === 'input' && <InputSection state={inputState} setState={setInputState} onNext={handleConfigSubmit} />}
+        
         {step === 'planning' && (
-          <PlanningSection 
-            plan={plan} 
-            setPlan={setPlan} 
-            onGenerateImages={handleStartGeneration}
-            onBack={() => setStep('input')}
-          />
+          <div className="max-w-5xl mx-auto flex flex-col h-[calc(100vh-250px)] animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl sm:text-2xl font-bold">大纲规划</h2>
+              <div className="flex gap-4">
+                <button onClick={() => setStep('input')} className="text-sm text-gray-400 hover:text-white transition">返回修改</button>
+                <button onClick={handleStartGeneration} className="px-4 sm:px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-lg shadow-lg transition">开始绘图</button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto pr-4 space-y-4">
+              {plan.map((p, i) => (
+                <div key={p.id} className="bg-gray-800 p-4 rounded-xl border border-gray-700 flex gap-4">
+                  <div className="w-8 h-8 rounded-full bg-gray-700 flex-shrink-0 flex items-center justify-center font-bold text-sm">{i+1}</div>
+                  <div className="flex-1 space-y-3">
+                    <input className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm font-semibold" value={p.title} onChange={(e) => {
+                      const newPlan = [...plan]; newPlan[i].title = e.target.value; setPlan(newPlan);
+                    }} />
+                    <textarea className="w-full h-24 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-xs leading-relaxed" value={p.content} onChange={(e) => {
+                      const newPlan = [...plan]; newPlan[i].content = e.target.value; setPlan(newPlan);
+                    }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
-        {(step === 'generating' || step === 'preview') && (
-          <ResultsSection 
-            slides={slides} 
-            plan={plan}
-            onEditSlide={setEditingSlideId}
-            onExport={handleExport}
-          />
+        {step === 'preview' && (
+          <div className="max-w-7xl mx-auto animate-in fade-in duration-700">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+              <h2 className="text-2xl font-bold">生成预览</h2>
+              <div className="flex flex-wrap gap-4">
+                <button onClick={() => setStep('planning')} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition">调整大纲</button>
+                <div className="flex gap-2">
+                  <button onClick={() => handleExport('pdf')} className="px-4 py-2 text-sm bg-red-600/20 text-red-400 border border-red-600/50 rounded-lg hover:bg-red-600/30 transition">PDF</button>
+                  <button onClick={() => handleExport('ppt')} className="px-4 py-2 text-sm bg-orange-600/20 text-orange-400 border border-orange-600/50 rounded-lg hover:bg-orange-600/30 transition">PPT</button>
+                </div>
+              </div>
+            </div>
+            <div className={`grid grid-cols-1 ${inputState.aspectRatio === '16:9' ? 'md:grid-cols-2 lg:grid-cols-3' : 'sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4'} gap-6`}>
+              {slides.map((s, i) => (
+                <div key={s.id} className={`group relative rounded-xl bg-gray-800 border border-gray-700 overflow-hidden ${getAspectClass(inputState.aspectRatio)} shadow-lg hover:shadow-indigo-500/10 transition-shadow`}>
+                  {s.status === 'generating' ? (
+                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-600 bg-gray-900/50">
+                       <i className="fa-solid fa-circle-notch fa-spin text-xl text-indigo-500 mb-2"></i>
+                       <span className="text-[10px] uppercase tracking-widest animate-pulse">绘制中</span>
+                     </div>
+                  ) : s.status === 'done' && s.base64 ? (
+                     <img src={s.base64} className="w-full h-full object-cover" />
+                  ) : s.status === 'error' ? (
+                     <div className="w-full h-full flex flex-col items-center justify-center text-red-400 p-4 text-center text-xs">生成失败</div>
+                  ) : (
+                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-600">
+                       <i className="fa-solid fa-circle-notch fa-spin text-xl text-indigo-500 mb-2"></i>
+                       <span className="text-[10px] uppercase tracking-widest animate-pulse">等待队列</span>
+                     </div>
+                  )}
+                  
+                  {s.status !== 'generating' && (
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
+                      <button onClick={() => generateSingleSlide(s.id, s.prompt)} className="w-10 h-10 bg-white text-gray-900 rounded-full flex items-center justify-center shadow-lg transform hover:scale-110 transition"><i className="fa-solid fa-rotate-right"></i></button>
+                      <button onClick={() => setEditingSlideId(s.id)} className="px-4 py-2 bg-white text-gray-900 rounded-full font-bold text-xs shadow-lg transform hover:scale-105 transition">查看详情</button>
+                    </div>
+                  )}
+                  <div className="absolute bottom-2 right-2 px-2 py-0.5 bg-black/50 rounded text-[10px] font-mono backdrop-blur-sm">P.{i+1}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </main>
 
-      {/* Editor Modal */}
+      {/* Detail Modal */}
       {editingSlideId && (
-        <EditorModal 
-          isOpen={!!editingSlideId}
-          onClose={() => setEditingSlideId(null)}
-          slideImage={slides.find(s => s.id === editingSlideId)!}
-          slidePlan={plan.find(p => p.id === editingSlideId)!}
-          onRegenerate={handleRegenerateSlide}
-          styleName={config?.style?.name || ''}
-        />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
+           <div className="bg-gray-900 rounded-3xl w-full max-w-6xl h-[90vh] flex flex-col lg:flex-row overflow-hidden border border-gray-800 shadow-2xl relative animate-in zoom-in-95 duration-200">
+              <button onClick={() => setEditingSlideId(null)} className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center bg-gray-800 rounded-full hover:bg-gray-700 transition z-20"><i className="fa-solid fa-xmark"></i></button>
+              <div className="flex-1 bg-black flex items-center justify-center overflow-hidden p-4 sm:p-12">
+                 {slides.find(s => s.id === editingSlideId)?.base64 && (
+                   <img src={slides.find(s => s.id === editingSlideId)?.base64!} className={`max-w-full max-h-full object-contain shadow-2xl rounded-lg`} />
+                 )}
+              </div>
+              <div className="w-full lg:w-96 bg-gray-900 border-t lg:border-t-0 lg:border-l border-gray-800 p-6 flex flex-col">
+                <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><i className="fa-solid fa-circle-info text-indigo-500"></i> 幻灯片详情</h3>
+                <div className="flex-1 overflow-y-auto space-y-6 pr-2">
+                  <div>
+                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-2">标题</label>
+                    <div className="text-sm font-semibold text-white bg-gray-800 p-3 rounded-xl border border-gray-700">{plan.find(p => p.id === editingSlideId)?.title}</div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-2">核心内容</label>
+                    <div className="text-xs text-gray-300 leading-relaxed bg-gray-800 p-3 rounded-xl border border-gray-700 whitespace-pre-wrap">{plan.find(p => p.id === editingSlideId)?.content}</div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-2">画面提示词 (Prompt)</label>
+                    <textarea 
+                      className="w-full h-32 bg-gray-950 rounded-xl p-3 text-xs text-gray-400 border border-gray-800 focus:border-indigo-500 outline-none transition-colors resize-none"
+                      value={slides.find(s => s.id === editingSlideId)?.prompt}
+                      onChange={(e) => {
+                        const newSlides = [...slides];
+                        const idx = newSlides.findIndex(s => s.id === editingSlideId);
+                        newSlides[idx].prompt = e.target.value;
+                        setSlides(newSlides);
+                      }}
+                    />
+                  </div>
+                </div>
+                <button 
+                  onClick={() => {
+                    const currentPrompt = slides.find(s => s.id === editingSlideId)!.prompt;
+                    generateSingleSlide(editingSlideId, currentPrompt);
+                    setEditingSlideId(null); // Return to preview grid immediately
+                  }}
+                  disabled={slides.find(s => s.id === editingSlideId)?.status === 'generating'}
+                  className="mt-6 w-full py-4 bg-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-500 transition disabled:opacity-50 shadow-xl shadow-indigo-600/20"
+                >
+                  <i className={`fa-solid fa-rotate-right ${slides.find(s => s.id === editingSlideId)?.status === 'generating' ? 'fa-spin' : ''}`}></i> 
+                  {slides.find(s => s.id === editingSlideId)?.status === 'generating' ? '正在排队...' : '更新并重新生成'}
+                </button>
+              </div>
+           </div>
+        </div>
       )}
     </div>
   );
