@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -15,12 +14,14 @@ interface SlidePlan {
 interface SlideImage {
   id: number;
   base64: string | null;
-  status: 'pending' | 'generating' | 'done' | 'error';
+  status: 'pending' | 'generating' | 'done' | 'error' | 'retrying';
   prompt: string;
+  retryCount?: number;
   errorMsg?: string;
 }
 
 type AspectRatio = '16:9' | '4:3' | '1:1' | '3:4' | '9:16';
+type ImageSize = '1K' | '2K' | '4K';
 type AppStep = 'input' | 'planning' | 'generating' | 'preview';
 
 // --- Constants ---
@@ -34,9 +35,15 @@ const STYLES = [
 ];
 
 const DETAIL_LEVELS = [
-  { id: 'concise', name: '精简 (关键词)', description: '每页仅保留核心标题和极少量关键词。' },
+  { id: 'concise', name: '精简 (关键词)', description: '每页仅保留核心标题 and 极少量关键词。' },
   { id: 'moderate', name: '适中 (大纲)', description: '包含标题 and 3-5个关键点。' },
   { id: 'detailed', name: '详尽 (段落)', description: '包含较详细的解释性文本。' },
+];
+
+const QUALITY_OPTIONS: { id: ImageSize; name: string; desc: string }[] = [
+  { id: '1K', name: '1K 标准', desc: '快速生成，适合草稿' },
+  { id: '2K', name: '2K 高清', desc: '细节丰富，适合演示' },
+  { id: '4K', name: '4K 极致', desc: '超清像素，专业画质' },
 ];
 
 const RATIO_OPTIONS: { id: AspectRatio; name: string; icon: string }[] = [
@@ -46,6 +53,10 @@ const RATIO_OPTIONS: { id: AspectRatio; name: string; icon: string }[] = [
   { id: '3:4', name: '书籍 3:4', icon: 'fa-book-open' },
   { id: '9:16', name: '竖屏 9:16', icon: 'fa-mobile-screen' },
 ];
+
+// --- Helper Functions ---
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- Components ---
 
@@ -172,6 +183,26 @@ const InputSection = ({
           </div>
         </div>
 
+        <div className="col-span-1 md:col-span-2">
+          <label className="block text-gray-400 text-sm font-medium mb-2">生成画质 (4K 生成极慢且易过载)</label>
+          <div className="grid grid-cols-3 gap-2 bg-gray-900 rounded-lg border border-gray-700 p-1">
+            {QUALITY_OPTIONS.map((q) => (
+              <button
+                key={q.id}
+                onClick={() => setState({ ...state, imageSize: q.id })}
+                className={`flex flex-col items-center justify-center gap-0.5 py-2 rounded-md transition-all border ${
+                  state.imageSize === q.id 
+                    ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-[0_0_15px_rgba(79,70,229,0.3)]' 
+                    : 'bg-transparent border-transparent text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                <span className="text-xs font-bold">{q.name}</span>
+                <span className="text-[10px] opacity-60">{q.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div>
           <label className="block text-gray-400 text-sm font-medium mb-2">幻灯片页数 ({state.slideCount}页)</label>
           <div className="flex items-center gap-4 bg-gray-900 p-2 rounded-lg border border-gray-700 h-10">
@@ -265,12 +296,19 @@ const App = () => {
   const [step, setStep] = useState<AppStep>('input');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState('');
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   
+  // Ref to track the current slides state for internal logic
+  const slidesRef = useRef<SlideImage[]>([]);
+  // Generation version used to cancel background tasks if user switches steps or returns home
+  const generationVersion = useRef(0);
+
   // Persistent Input State
   const [inputState, setInputState] = useState({
     text: '',
     slideCount: 5,
     aspectRatio: '16:9' as AspectRatio,
+    imageSize: '1K' as ImageSize,
     selectedStyleId: STYLES[0].id,
     customStylePrompt: '',
     detailLevelId: DETAIL_LEVELS[1].id
@@ -279,6 +317,11 @@ const App = () => {
   const [plan, setPlan] = useState<SlidePlan[]>([]);
   const [slides, setSlides] = useState<SlideImage[]>([]);
   const [editingSlideId, setEditingSlideId] = useState<number | null>(null);
+  const [tempImageSize, setTempImageSize] = useState<ImageSize>('1K');
+
+  useEffect(() => {
+    slidesRef.current = slides;
+  }, [slides]);
 
   useEffect(() => {
     const check = async () => {
@@ -290,11 +333,17 @@ const App = () => {
   }, []);
 
   const handleReturnHome = () => {
-    if (confirm("确定返回首页吗？未保存的内容将会丢失。")) {
-      setPlan([]);
-      setSlides([]);
-      setStep('input');
-    }
+    setShowResetConfirm(true);
+  };
+
+  const confirmReset = () => {
+    generationVersion.current++; // Stop all pending background generation tasks
+    setPlan([]);
+    setSlides([]);
+    slidesRef.current = []; // Critical sync: Immediately clear ref so logic sees empty state
+    setStep('input');
+    setIsLoading(false);
+    setShowResetConfirm(false);
   };
 
   const handleConfigSubmit = async () => {
@@ -349,7 +398,7 @@ const App = () => {
       console.error(e);
       if (e.message?.includes("Requested entity was not found")) {
         setHasKey(false);
-        alert("所选 API 密钥的项目未启用计费，请重新选择。");
+        alert("所选 API 密钥的项目未启用计费，请重新选择以使用 Pro 模型。");
       } else {
         alert("大纲规划失败。请检查内容或重试。");
       }
@@ -359,6 +408,9 @@ const App = () => {
   };
 
   const handleStartGeneration = async () => {
+    generationVersion.current++; // Increment version to clear any stale retry loops
+    const currentVer = generationVersion.current;
+
     setStep('generating');
     const styleObj = inputState.selectedStyleId === 'custom' 
       ? { name: '自定义', prompt: inputState.customStylePrompt }
@@ -368,30 +420,94 @@ const App = () => {
       id: p.id,
       base64: null,
       status: 'pending',
-      prompt: `Create a professional ${inputState.aspectRatio} presentation slide. Style: ${styleObj?.prompt}. 
-               Visual elements: ${p.visualDescription}. 
-               REQUIRED: Render Title "${p.title}" and Content "${p.content}" in Chinese (Simplified).`
+      prompt: `High quality professional ${inputState.aspectRatio} presentation slide design. 
+               Title: "${p.title}" (rendered in elegant Chinese). 
+               Body: "${p.content}" (rendered in legible Chinese). 
+               Style Theme: ${styleObj?.prompt}. 
+               Imagery: ${p.visualDescription}. 
+               Ensure cinematic lighting, high resolution details, and a clean professional layout.`
     }));
+    
+    // Critical sync: Explicitly update ref immediately before loop starts.
+    // This prevents the loop from seeing stale 'done' states from previous runs (if IDs overlap)
+    // which would cause it to skip generation.
     setSlides(initialSlides);
+    slidesRef.current = initialSlides; 
     setStep('preview');
     
-    for (const slide of initialSlides) {
-      await generateSingleSlide(slide.id, slide.prompt);
+    // Process sequentially
+    for (let i = 0; i < initialSlides.length; i++) {
+      if (currentVer !== generationVersion.current) return; // Stop if version changed
+
+      const targetId = initialSlides[i].id;
+      
+      // Check current status using the ref (which we just synced)
+      const currentSlideStatus = slidesRef.current.find(s => s.id === targetId)?.status;
+      if (currentSlideStatus === 'done' || currentSlideStatus === 'generating' || currentSlideStatus === 'retrying') {
+        continue;
+      }
+
+      await generateSingleSlide(targetId, initialSlides[i].prompt, 0, false, currentVer);
+      
+      // Cooldown between requests
+      const cooldown = inputState.imageSize === '4K' ? 10000 : 4000;
+      if (i < initialSlides.length - 1 && currentVer === generationVersion.current) {
+        await sleep(cooldown); 
+      }
     }
   };
 
-  const generateSingleSlide = async (id: number, prompt: string, retry = 0) => {
-    // Force status to generating to trigger loading UI
-    setSlides(prev => prev.map(s => s.id === id ? { ...s, status: 'generating' } : s));
+  /**
+   * Refactored: Logical generation function with version check and concurrency prevention
+   */
+  const generateSingleSlide = async (
+    id: number, 
+    prompt: string, 
+    retryCount = 0, 
+    isManual = false, 
+    version: number,
+    specificImageSize?: ImageSize
+  ) => {
+    // 1. Version Check: If this task belongs to an old session/version, abort.
+    if (version !== generationVersion.current) return false;
+
+    // 2. State Guard for automatic loop: If already busy, don't overlap
+    // FIX: Only check guard if it's the INITIAL attempt (retryCount === 0). 
+    // If we are retrying (retryCount > 0), we are the active process for this ID, so we should proceed.
+    const current = slidesRef.current.find(s => s.id === id);
+    if (retryCount === 0 && !isManual && (current?.status === 'generating' || current?.status === 'retrying' || current?.status === 'done')) {
+      return false;
+    }
+
+    // REDUCED RETRY COUNT: 2 retries = 3 total attempts
+    const MAX_RETRIES = 2;
     
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // 3. Set Status Atomically
+    setSlides(prev => prev.map(s => s.id === id ? { 
+      ...s, 
+      status: retryCount > 0 ? 'retrying' : 'generating',
+      retryCount,
+      errorMsg: undefined,
+      // Clear base64 only if it's the very first manual re-trigger
+      base64: (isManual && retryCount === 0) ? null : s.base64 
+    } : s));
+    
     try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const resp = await ai.models.generateContent({
         model: 'gemini-3-pro-image-preview',
-        contents: prompt,
-        config: { imageConfig: { aspectRatio: inputState.aspectRatio } }
+        contents: { parts: [{ text: prompt }] },
+        config: { 
+          imageConfig: { 
+            aspectRatio: inputState.aspectRatio,
+            // Use specific size if provided (e.g. via edit modal), otherwise default to global config
+            imageSize: specificImageSize ?? inputState.imageSize 
+          }
+        }
       });
       
+      if (version !== generationVersion.current) return false;
+
       let base64 = null;
       if (resp.candidates?.[0]?.content?.parts) {
         for (const part of resp.candidates[0].content.parts) {
@@ -401,26 +517,67 @@ const App = () => {
           }
         }
       }
-      if (base64) setSlides(prev => prev.map(s => s.id === id ? { ...s, status: 'done', base64, prompt } : s));
-      else throw new Error("No image data");
-    } catch (e: any) {
-      if (e.message?.includes("Requested entity was not found")) setHasKey(false);
-      if (e.status === 500 && retry < 2) {
-        await new Promise(r => setTimeout(r, 3000));
-        return generateSingleSlide(id, prompt, retry + 1);
+
+      if (base64) {
+        setSlides(prev => prev.map(s => s.id === id ? { ...s, status: 'done', base64, prompt, errorMsg: undefined } : s));
+        return true; 
+      } else {
+        throw new Error("No image data returned.");
       }
-      setSlides(prev => prev.map(s => s.id === id ? { ...s, status: 'error', errorMsg: "生成失败" } : s));
+    } catch (e: any) {
+      if (version !== generationVersion.current) return false;
+      console.error(`Slide ${id} Error (Attempt ${retryCount}):`, e);
+      
+      const errorStr = JSON.stringify(e);
+      const isOverloaded = errorStr.includes("503") || errorStr.includes("overloaded") || errorStr.includes("UNAVAILABLE");
+      
+      if (e.message?.includes("Requested entity was not found")) {
+        setHasKey(false);
+        setSlides(prev => prev.map(s => s.id === id ? { ...s, status: 'error', errorMsg: "API权限不足/计费未开启" } : s));
+        return false;
+      }
+
+      // 4. Optimized Retry Logic with Capped Backoff
+      if (isOverloaded && retryCount < MAX_RETRIES) {
+        // Growth: 4s, 8s, 16s, cap at 25s
+        const baseMs = (Math.pow(2, retryCount) * 4000);
+        const jitter = Math.random() * 2000;
+        const backoffMs = Math.min(baseMs + jitter, 25000);
+        
+        setSlides(prev => prev.map(s => s.id === id ? { 
+          ...s, 
+          status: 'retrying', 
+          errorMsg: `服务器繁忙，${Math.round(backoffMs/1000)}s 后重试...` 
+        } : s));
+        
+        await sleep(backoffMs);
+        if (version !== generationVersion.current) return false;
+        // Pass specificImageSize along to the retry
+        return await generateSingleSlide(id, prompt, retryCount + 1, isManual, version, specificImageSize);
+      }
+      
+      // 5. Terminal failure
+      setSlides(prev => prev.map(s => s.id === id ? { 
+        ...s, 
+        status: 'error', 
+        errorMsg: isOverloaded ? "服务器过载，请尝试手动重试或降低画质" : "生成失败，可能是内容受限或API错误" 
+      } : s));
+      return false;
     }
   };
 
+  const handleManualRegenerate = (id: number, prompt: string, size?: ImageSize) => {
+    // Clicking regenerate should NOT increment the global version, 
+    // but it SHOULD use the current version to ensure it stops if the user leaves the page.
+    generateSingleSlide(id, prompt, 0, true, generationVersion.current, size);
+  };
+
   const handleExport = (type: 'pdf' | 'ppt') => {
-    // Determine orientation for libraries
     const ratio = inputState.aspectRatio;
+    const slidesData = slidesRef.current;
     
     if (type === 'ppt') {
       const pptx = new (window as any).PptxGenJS();
-      
-      // Map ratios to PPTX layouts or custom definitions
       if (ratio === '16:9') pptx.layout = 'LAYOUT_16x9';
       else if (ratio === '4:3') pptx.layout = 'LAYOUT_4x3';
       else if (ratio === '1:1') {
@@ -434,7 +591,7 @@ const App = () => {
         pptx.layout = 'PORTRAIT_9_16';
       }
       
-      slides.forEach(s => {
+      slidesData.forEach(s => {
         if (s.base64) {
           const slide = pptx.addSlide();
           slide.background = { data: s.base64 };
@@ -443,8 +600,6 @@ const App = () => {
       pptx.writeFile({ fileName: `NanoDeck-${Date.now()}.pptx` });
     } else {
       const { jsPDF } = (window as any).jspdf;
-      
-      // Calculate pixel dimensions for PDF based on ratios (base 1080p width/height)
       let width = 1920, height = 1080, orientation: 'p' | 'l' = 'l';
       
       if (ratio === '16:9') { width = 1920; height = 1080; orientation = 'l'; }
@@ -454,10 +609,11 @@ const App = () => {
       else if (ratio === '9:16') { width = 1080; height = 1920; orientation = 'p'; }
       
       const doc = new jsPDF({ orientation, unit: 'px', format: [width, height] });
-      
-      slides.forEach((s, i) => {
-        if (i > 0) doc.addPage([width, height], orientation);
-        if (s.base64) doc.addImage(s.base64, 'PNG', 0, 0, width, height);
+      slidesData.forEach((s, i) => {
+        if (s.base64) {
+          if (i > 0) doc.addPage([width, height], orientation);
+          doc.addImage(s.base64, 'PNG', 0, 0, width, height);
+        }
       });
       doc.save(`NanoDeck-${Date.now()}.pdf`);
     }
@@ -479,9 +635,10 @@ const App = () => {
       <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center mb-6">
         <i className="fa-solid fa-key text-3xl text-indigo-500"></i>
       </div>
-      <h2 className="text-2xl font-bold mb-4">需要连接 API 密钥</h2>
-      <p className="text-gray-400 mb-8 max-w-sm">需使用付费 GCP 项目 API 密钥以访问 Gemini 3 Pro 系列模型。</p>
+      <h2 className="text-2xl font-bold mb-4">需要连接付费 API 密钥</h2>
+      <p className="text-gray-400 mb-8 max-w-sm">4K 图像生成和 Pro 模型需要使用开启了计费功能的 GCP 项目 API 密钥。</p>
       <button onClick={() => (window as any).aistudio.openSelectKey().then(() => setHasKey(true))} className="px-8 py-3 bg-indigo-600 rounded-xl font-bold shadow-lg transition hover:bg-indigo-500">连接密钥</button>
+      <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="mt-4 text-xs text-indigo-400 hover:underline">了解计费文档</a>
     </div>
   );
   
@@ -513,7 +670,7 @@ const App = () => {
               <h2 className="text-xl sm:text-2xl font-bold">大纲规划</h2>
               <div className="flex gap-4">
                 <button onClick={() => setStep('input')} className="text-sm text-gray-400 hover:text-white transition">返回修改</button>
-                <button onClick={handleStartGeneration} className="px-4 sm:px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-lg shadow-lg transition">开始绘图</button>
+                <button onClick={handleStartGeneration} className="px-4 sm:px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-lg shadow-lg transition">开始绘图 ({inputState.imageSize})</button>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto pr-4 space-y-4">
@@ -539,29 +696,21 @@ const App = () => {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 bg-gray-900/50 p-6 rounded-2xl border border-gray-800">
               <div>
                 <h2 className="text-2xl font-bold">生成预览</h2>
-                <p className="text-sm text-gray-500 mt-1">幻灯片已就绪，您可以导出文件或返回进行微调。</p>
+                <div className="flex items-center gap-2 mt-1">
+                   <p className="text-sm text-gray-500">图片生成任务已安排。并发较多时可能需要稍等片刻。</p>
+                   <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 text-[10px] rounded border border-indigo-500/20 font-bold">{inputState.imageSize} 品质</span>
+                </div>
               </div>
               
               <div className="flex flex-wrap items-center gap-4">
-                {/* Navigation Controls */}
                 <div className="flex bg-gray-800 p-1 rounded-xl border border-gray-700">
-                  <button 
-                    onClick={handleReturnHome}
-                    title="返回首页重新开始"
-                    className="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition flex items-center gap-2"
-                  >
+                  <button onClick={handleReturnHome} className="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition flex items-center gap-2">
                     <i className="fa-solid fa-house"></i> 首页
                   </button>
-                  <button 
-                    onClick={() => setStep('planning')}
-                    title="返回上一步修改大纲"
-                    className="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition flex items-center gap-2 border-l border-gray-700"
-                  >
-                    <i className="fa-solid fa-arrow-left"></i> 返回大纲
+                  <button onClick={() => setStep('planning')} className="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition flex items-center gap-2 border-l border-gray-700">
+                    <i className="fa-solid fa-arrow-left"></i> 修改大纲
                   </button>
                 </div>
-
-                {/* Export Controls */}
                 <div className="flex gap-2">
                   <button onClick={() => handleExport('pdf')} className="px-4 py-2 text-sm bg-red-600/20 text-red-400 border border-red-600/50 rounded-xl hover:bg-red-600/30 transition flex items-center gap-2">
                     <i className="fa-solid fa-file-pdf"></i> PDF
@@ -576,103 +725,188 @@ const App = () => {
             <div className={`grid grid-cols-1 ${inputState.aspectRatio === '16:9' ? 'md:grid-cols-2 lg:grid-cols-3' : 'sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4'} gap-6 mb-12`}>
               {slides.map((s, i) => (
                 <div key={s.id} className={`group relative rounded-xl bg-gray-800 border border-gray-700 overflow-hidden ${getAspectClass(inputState.aspectRatio)} shadow-lg hover:shadow-indigo-500/10 transition-shadow`}>
-                  {s.status === 'generating' ? (
-                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-600 bg-gray-900/50">
+                  {s.status === 'generating' || s.status === 'retrying' ? (
+                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-900/50 p-4 text-center">
                        <i className="fa-solid fa-circle-notch fa-spin text-xl text-indigo-500 mb-2"></i>
-                       <span className="text-[10px] uppercase tracking-widest animate-pulse">绘制中</span>
+                       <span className="text-[10px] uppercase tracking-widest animate-pulse">
+                         {s.status === 'retrying' ? '重试队列中...' : (inputState.imageSize === '4K' ? '超清渲染中...' : '绘制中...')}
+                       </span>
+                       {s.errorMsg && <p className="text-[9px] mt-2 text-gray-400 leading-tight bg-gray-900/80 px-2 py-1 rounded border border-gray-700">{s.errorMsg}</p>}
                      </div>
                   ) : s.status === 'done' && s.base64 ? (
-                     <img src={s.base64} className="w-full h-full object-cover" />
-                  ) : s.status === 'error' ? (
-                     <div className="w-full h-full flex flex-col items-center justify-center text-red-400 p-4 text-center text-xs">生成失败</div>
-                  ) : (
-                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-600">
-                       <i className="fa-solid fa-circle-notch fa-spin text-xl text-indigo-500 mb-2"></i>
-                       <span className="text-[10px] uppercase tracking-widest animate-pulse">等待队列</span>
+                     <div className="relative w-full h-full">
+                        <img src={s.base64} className="w-full h-full object-cover animate-in fade-in duration-500" />
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 backdrop-blur-sm">
+                          <button 
+                            onClick={() => {
+                              setEditingSlideId(s.id);
+                              setTempImageSize(inputState.imageSize);
+                            }}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-xs transform scale-90 group-hover:scale-100 transition-all shadow-lg"
+                          >
+                            <i className="fa-solid fa-pen-to-square mr-2"></i>编辑 / 重绘
+                          </button>
+                          <button 
+                            onClick={() => {
+                              const link = document.createElement('a');
+                              link.href = s.base64!;
+                              link.download = `slide-${s.id}.png`;
+                              link.click();
+                            }}
+                            className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg font-bold text-xs transform scale-90 group-hover:scale-100 transition-all backdrop-blur-md"
+                          >
+                            <i className="fa-solid fa-download mr-2"></i>保存图片
+                          </button>
+                        </div>
                      </div>
-                  )}
-                  
-                  {s.status !== 'generating' && (
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
-                      <button onClick={() => generateSingleSlide(s.id, s.prompt)} className="w-10 h-10 bg-white text-gray-900 rounded-full flex items-center justify-center shadow-lg transform hover:scale-110 transition"><i className="fa-solid fa-rotate-right"></i></button>
-                      <button onClick={() => setEditingSlideId(s.id)} className="px-4 py-2 bg-white text-gray-900 rounded-full font-bold text-xs shadow-lg transform hover:scale-105 transition">查看详情</button>
-                    </div>
-                  )}
-                  <div className="absolute bottom-2 right-2 px-2 py-0.5 bg-black/50 rounded text-[10px] font-mono backdrop-blur-sm">P.{i+1}</div>
+                  ) : s.status === 'error' ? (
+                     <div className="w-full h-full flex flex-col items-center justify-center text-red-400 p-4 text-center bg-gray-900/50">
+                        <i className="fa-solid fa-triangle-exclamation mb-2 text-xl"></i>
+                        <span className="text-[10px] line-clamp-3 mt-1 mb-3">{s.errorMsg || '生成失败'}</span>
+                        <button 
+                          onClick={() => {
+                            setEditingSlideId(s.id);
+                            setTempImageSize(inputState.imageSize);
+                          }}
+                          className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-xs transition flex items-center gap-1"
+                        >
+                          <i className="fa-solid fa-rotate-right"></i> 编辑并重试
+                        </button>
+                     </div>
+                  ) : null}
+
+                  <div className="absolute top-2 left-2 px-2 py-1 bg-black/50 backdrop-blur-sm rounded text-[10px] font-mono text-white/50 pointer-events-none">
+                    #{s.id}
+                  </div>
                 </div>
               ))}
             </div>
 
-            {/* Bottom Navigation for better UX */}
-            <div className="flex flex-col items-center justify-center gap-6 py-12 border-t border-gray-800 mt-12">
-               <div className="text-gray-400 text-sm">完成了您的创作？</div>
-               <div className="flex gap-4">
-                  <button 
-                    onClick={handleReturnHome}
-                    className="px-8 py-3 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-xl transition flex items-center gap-2 border border-gray-700"
-                  >
-                    <i className="fa-solid fa-house"></i> 返回首页
-                  </button>
-                  <button 
-                    onClick={() => setStep('planning')}
-                    className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition flex items-center gap-2 shadow-lg shadow-indigo-600/20"
-                  >
-                    <i className="fa-solid fa-arrow-left"></i> 返回修改大纲
-                  </button>
-               </div>
+            <div className="flex justify-center mt-12 mb-8">
+               <button 
+                 onClick={handleReturnHome}
+                 className="group px-6 py-3 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded-full font-bold transition-all shadow-lg flex items-center gap-2 border border-gray-700 hover:border-gray-500"
+               >
+                  <i className="fa-solid fa-arrow-left group-hover:-translate-x-1 transition-transform"></i>
+                  返回首页
+               </button>
             </div>
           </div>
         )}
       </main>
 
-      {/* Detail Modal */}
+      {/* Edit Modal */}
       {editingSlideId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
-           <div className="bg-gray-900 rounded-3xl w-full max-w-6xl h-[90vh] flex flex-col lg:flex-row overflow-hidden border border-gray-800 shadow-2xl relative animate-in zoom-in-95 duration-200">
-              <button onClick={() => setEditingSlideId(null)} className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center bg-gray-800 rounded-full hover:bg-gray-700 transition z-20"><i className="fa-solid fa-xmark"></i></button>
-              <div className="flex-1 bg-black flex items-center justify-center overflow-hidden p-4 sm:p-12">
-                 {slides.find(s => s.id === editingSlideId)?.base64 && (
-                   <img src={slides.find(s => s.id === editingSlideId)?.base64!} className={`max-w-full max-h-full object-contain shadow-2xl rounded-lg`} />
-                 )}
-              </div>
-              <div className="w-full lg:w-96 bg-gray-900 border-t lg:border-t-0 lg:border-l border-gray-800 p-6 flex flex-col">
-                <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><i className="fa-solid fa-circle-info text-indigo-500"></i> 幻灯片详情</h3>
-                <div className="flex-1 overflow-y-auto space-y-6 pr-2">
-                  <div>
-                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-2">标题</label>
-                    <div className="text-sm font-semibold text-white bg-gray-800 p-3 rounded-xl border border-gray-700">{plan.find(p => p.id === editingSlideId)?.title}</div>
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-2">核心内容</label>
-                    <div className="text-xs text-gray-300 leading-relaxed bg-gray-800 p-3 rounded-xl border border-gray-700 whitespace-pre-wrap">{plan.find(p => p.id === editingSlideId)?.content}</div>
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-2">画面提示词 (Prompt)</label>
-                    <textarea 
-                      className="w-full h-32 bg-gray-950 rounded-xl p-3 text-xs text-gray-400 border border-gray-800 focus:border-indigo-500 outline-none transition-colors resize-none"
-                      value={slides.find(s => s.id === editingSlideId)?.prompt}
-                      onChange={(e) => {
-                        const newSlides = [...slides];
-                        const idx = newSlides.findIndex(s => s.id === editingSlideId);
-                        newSlides[idx].prompt = e.target.value;
-                        setSlides(newSlides);
-                      }}
-                    />
-                  </div>
-                </div>
-                <button 
-                  onClick={() => {
-                    const currentPrompt = slides.find(s => s.id === editingSlideId)!.prompt;
-                    generateSingleSlide(editingSlideId, currentPrompt);
-                    setEditingSlideId(null); // Return to preview grid immediately
-                  }}
-                  disabled={slides.find(s => s.id === editingSlideId)?.status === 'generating'}
-                  className="mt-6 w-full py-4 bg-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-500 transition disabled:opacity-50 shadow-xl shadow-indigo-600/20"
-                >
-                  <i className={`fa-solid fa-rotate-right ${slides.find(s => s.id === editingSlideId)?.status === 'generating' ? 'fa-spin' : ''}`}></i> 
-                  {slides.find(s => s.id === editingSlideId)?.status === 'generating' ? '正在排队...' : '更新并重新生成'}
-                </button>
-              </div>
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+           {(() => {
+              const slide = slides.find(s => s.id === editingSlideId);
+              if (!slide) return null;
+              return (
+                 <div className="bg-gray-900 w-full max-w-2xl rounded-2xl border border-gray-800 shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300">
+                    <div className="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/50 rounded-t-2xl">
+                       <h3 className="font-bold text-white flex items-center gap-2">
+                         <span className="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-xs">#{slide.id}</span>
+                         编辑幻灯片
+                       </h3>
+                       <button onClick={() => setEditingSlideId(null)} className="text-gray-400 hover:text-white w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-800 transition">
+                          <i className="fa-solid fa-xmark text-lg"></i>
+                       </button>
+                    </div>
+                    
+                    <div className="p-6 overflow-y-auto space-y-6">
+                       <div className={`mx-auto ${getAspectClass(inputState.aspectRatio)} max-h-[40vh] bg-gray-950 rounded-lg overflow-hidden border border-gray-800 flex items-center justify-center relative shadow-inner`}>
+                          {slide.base64 ? (
+                             <img src={slide.base64} className="w-full h-full object-contain" />
+                          ) : (
+                             <div className="text-gray-600 flex flex-col items-center gap-2">
+                               <i className="fa-solid fa-image text-2xl opacity-50"></i>
+                               <span className="text-xs">暂无图片预览</span>
+                             </div>
+                          )}
+                       </div>
+                       
+                       <div>
+                          <label className="flex items-center justify-between text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">
+                            <span>提示词 (Prompt)</span>
+                            <span className="text-[10px] bg-gray-800 px-2 py-0.5 rounded text-gray-400">English Only</span>
+                          </label>
+                          <textarea 
+                             className="w-full h-24 bg-gray-950 border border-gray-800 rounded-xl p-4 text-sm text-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-none transition-all font-mono leading-relaxed"
+                             value={slide.prompt}
+                             onChange={(e) => {
+                                const newPrompt = e.target.value;
+                                setSlides(prev => prev.map(s => s.id === slide.id ? { ...s, prompt: newPrompt } : s));
+                             }}
+                             placeholder="输入图像生成提示词..."
+                          />
+                       </div>
+                       
+                       <div>
+                          <label className="block text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">重绘画质</label>
+                          <div className="flex gap-2">
+                             {QUALITY_OPTIONS.map(q => (
+                                <button
+                                   key={q.id}
+                                   onClick={() => setTempImageSize(q.id)}
+                                   className={`px-4 py-2 rounded-lg text-xs font-medium transition-all border ${
+                                      tempImageSize === q.id 
+                                        ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-900/20' 
+                                        : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-750 hover:text-gray-300'
+                                   }`}
+                                >
+                                   {q.name}
+                                </button>
+                             ))}
+                          </div>
+                       </div>
+                    </div>
+                    
+                    <div className="p-4 border-t border-gray-800 flex justify-end gap-3 bg-gray-900/50 rounded-b-2xl">
+                       <button onClick={() => setEditingSlideId(null)} className="px-5 py-2.5 text-sm font-medium text-gray-400 hover:text-white transition">取消</button>
+                       <button 
+                          onClick={() => {
+                             handleManualRegenerate(slide.id, slide.prompt, tempImageSize);
+                             setEditingSlideId(null);
+                          }}
+                          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-indigo-900/30 flex items-center gap-2 transform active:scale-95 transition-all"
+                       >
+                          <i className="fa-solid fa-wand-magic-sparkles"></i> 立即重绘
+                       </button>
+                    </div>
+                 </div>
+              );
+           })()}
+        </div>
+      )}
+
+      {/* Reset Confirmation Modal - Fixes the issue */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-[100] bg-gray-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 max-w-sm w-full shadow-2xl transform scale-100 ring-1 ring-white/10">
+             <div className="text-center">
+               <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                 <i className="fa-solid fa-house-chimney text-3xl text-yellow-500"></i>
+               </div>
+               <h3 className="text-xl font-bold text-white mb-3">返回首页？</h3>
+               <p className="text-gray-400 text-sm leading-relaxed mb-8">
+                 确定要返回首页吗？<br/>
+                 <span className="text-red-400">当前生成的演示文稿将会丢失</span>，且无法恢复。建议先导出文件。
+               </p>
+               <div className="grid grid-cols-2 gap-4">
+                 <button 
+                   onClick={() => setShowResetConfirm(false)}
+                   className="px-4 py-3 rounded-xl font-bold bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white transition border border-gray-700"
+                 >
+                   取消
+                 </button>
+                 <button 
+                   onClick={confirmReset}
+                   className="px-4 py-3 rounded-xl font-bold bg-gradient-to-r from-red-600 to-red-500 text-white hover:from-red-500 hover:to-red-400 shadow-lg shadow-red-900/20 transition"
+                 >
+                   确认返回
+                 </button>
+               </div>
+             </div>
            </div>
         </div>
       )}
