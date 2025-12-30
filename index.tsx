@@ -58,6 +58,29 @@ const RATIO_OPTIONS: { id: AspectRatio; name: string; icon: string }[] = [
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// 示例函数：演示 code-review 功能
+const processUserData = (userData: any) => {
+  // 潜在问题：缺少错误处理
+  const result = userData.name.toUpperCase();
+
+  // 潜在问题：硬编码的值
+  if (userData.age > 18) {
+    return result + "_ADULT";
+  }
+
+  // 潜在问题：未使用的变量
+  const unusedVariable = "This is never used";
+
+  return result;
+};
+
+// 另一个示例函数
+function fetchData(url: string) {
+  // 潜在问题：没有返回类型注解
+  // 潜在问题：没有错误处理
+  return fetch(url).then(res => res.json());
+}
+
 // --- Components ---
 
 const Header = () => (
