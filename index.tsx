@@ -23,6 +23,7 @@ interface SlideImage {
 type AspectRatio = '16:9' | '4:3' | '1:1' | '3:4' | '9:16';
 type ImageSize = '1K' | '2K' | '4K';
 type AppStep = 'input' | 'planning' | 'generating' | 'preview';
+type ThemeMode = 'light' | 'dark' | 'system';
 
 // --- Constants ---
 
@@ -60,19 +61,26 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- Components ---
 
-const Header = () => (
-  <header className="flex items-center justify-between px-6 py-4 bg-gray-900 border-b border-gray-800">
-    <div className="flex items-center gap-3">
-      <div className="w-8 h-8 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-lg flex items-center justify-center">
-        <i className="fa-solid fa-bolt text-gray-900 text-lg"></i>
+const Header = () => {
+  const { effectiveTheme } = useTheme();
+
+  return (
+    <header className={`flex items-center justify-between px-6 py-4 border-b ${effectiveTheme === 'dark' ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-lg flex items-center justify-center">
+          <i className="fa-solid fa-bolt text-gray-900 text-lg"></i>
+        </div>
+        <h1 className={`text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r ${effectiveTheme === 'dark' ? 'from-white to-gray-400' : 'from-gray-900 to-gray-600'}`}>
+          NanoDeck AI
+        </h1>
       </div>
-      <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-        NanoDeck AI
-      </h1>
-    </div>
-    <div className="text-sm text-gray-500">Powered by Gemini 3 Pro</div>
-  </header>
-);
+      <div className="flex items-center gap-4">
+        <ThemeToggle />
+        <div className={`text-sm ${effectiveTheme === 'dark' ? 'text-gray-500' : 'text-gray-600'}`}>Powered by Gemini 3 Pro</div>
+      </div>
+    </header>
+  );
+};
 
 const LoadingOverlay = ({ message }: { message: string }) => (
   <div className="fixed inset-0 z-[100] bg-gray-950/80 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
@@ -290,6 +298,101 @@ const InputSection = ({
 };
 
 // --- App Component ---
+
+// --- Theme Context ---
+
+interface ThemeContextType {
+  theme: ThemeMode;
+  setTheme: (theme: ThemeMode) => void;
+  effectiveTheme: 'light' | 'dark';
+}
+
+const ThemeContext = React.createContext<ThemeContextType | undefined>(undefined);
+
+const useTheme = () => {
+  const context = React.useContext(ThemeContext);
+  if (!context) {
+    throw new Error('useTheme must be used within a ThemeProvider');
+  }
+  return context;
+};
+
+const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const saved = localStorage.getItem('theme') as ThemeMode;
+    return saved || 'system';
+  });
+
+  const effectiveTheme: 'light' | 'dark' = React.useMemo(() => {
+    if (theme === 'system') {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    return theme;
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+    document.documentElement.setAttribute('data-theme', effectiveTheme);
+  }, [theme, effectiveTheme]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = () => {
+      if (theme === 'system') {
+        document.documentElement.setAttribute('data-theme', mediaQuery.matches ? 'dark' : 'light');
+      }
+    };
+
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, [theme]);
+
+  return (
+    <ThemeContext.Provider value={{ theme, setTheme, effectiveTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+};
+
+const ThemeToggle = () => {
+  const { theme, setTheme, effectiveTheme } = useTheme();
+
+  const cycleTheme = () => {
+    const themes: ThemeMode[] = ['light', 'dark', 'system'];
+    const currentIndex = themes.indexOf(theme);
+    const nextIndex = (currentIndex + 1) % themes.length;
+    setTheme(themes[nextIndex]);
+  };
+
+  const getThemeIcon = () => {
+    switch (theme) {
+      case 'light': return 'fa-sun';
+      case 'dark': return 'fa-moon';
+      case 'system': return 'fa-gear';
+    }
+  };
+
+  const getThemeLabel = () => {
+    switch (theme) {
+      case 'light': return '浅色模式';
+      case 'dark': return '深色模式';
+      case 'system': return '跟随系统';
+    }
+  };
+
+  return (
+    <button
+      onClick={cycleTheme}
+      className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 hover:bg-gray-700 transition-colors"
+      title={`当前: ${getThemeLabel()}`}
+    >
+      <i className={`fa-solid ${getThemeIcon()} text-yellow-400`}></i>
+      <span className="text-sm text-gray-300">{getThemeLabel()}</span>
+    </button>
+  );
+};
+
+// --- Main App ---
 
 const App = () => {
   const [hasKey, setHasKey] = useState<boolean | null>(null);
@@ -915,4 +1018,8 @@ const App = () => {
 };
 
 const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
+root.render(
+  <ThemeProvider>
+    <App />
+  </ThemeProvider>
+);

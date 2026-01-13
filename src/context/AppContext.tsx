@@ -34,6 +34,9 @@ export interface AppState {
   showResetConfirm: boolean;
   editingSlideId: number | null;
   tempImageSize: ImageSize;
+
+  // 生成版本（用于取消过期的生成任务）
+  generationVersion: number;
 }
 
 // ==================== Initial State ====================
@@ -58,7 +61,8 @@ export const initialState: AppState = {
   slides: [],
   showResetConfirm: false,
   editingSlideId: null,
-  tempImageSize: '1K'
+  tempImageSize: '1K',
+  generationVersion: 0
 };
 
 // ==================== Actions ====================
@@ -91,7 +95,10 @@ export type AppAction =
   // UI 状态
   | { type: 'SET_SHOW_RESET_CONFIRM'; payload: boolean }
   | { type: 'SET_EDITING_SLIDE_ID'; payload: number | null }
-  | { type: 'SET_TEMP_IMAGE_SIZE'; payload: ImageSize };
+  | { type: 'SET_TEMP_IMAGE_SIZE'; payload: ImageSize }
+
+  // 生成版本
+  | { type: 'INCREMENT_GENERATION_VERSION' };
 
 // ==================== Reducer ====================
 
@@ -175,6 +182,10 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
 
     case 'SET_TEMP_IMAGE_SIZE':
       return { ...state, tempImageSize: action.payload };
+
+    // 生成版本
+    case 'INCREMENT_GENERATION_VERSION':
+      return { ...state, generationVersion: state.generationVersion + 1 };
 
     default:
       return state;

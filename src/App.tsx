@@ -14,7 +14,7 @@ const AppContent: React.FC = () => {
   const { state, dispatch } = useAppContext();
   const currentStyle = useCurrentStyle(state);
   const { generatePlan } = useSlidePlan();
-  const { generateAllSlides } = useImageGeneration();
+  const { generateAllSlides, generateSingleSlide } = useImageGeneration();
   const { exportToPPTX, exportToPDF } = useExport();
 
   // 初始化 API Key 检查
@@ -129,7 +129,6 @@ const AppContent: React.FC = () => {
 
   // 处理手动重绘
   const handleManualRegenerate = async (id: number, prompt: string, size?: typeof state.inputConfig.imageSize) => {
-    const { generateSingleSlide } = useImageGeneration();
     await generateSingleSlide(id, prompt, {
       isManual: true,
       specificSize: size
