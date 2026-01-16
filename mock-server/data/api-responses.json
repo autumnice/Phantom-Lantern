@@ -1,0 +1,49 @@
+{
+  "POST /api/v1/presentations/plan": {
+    "delayMs": 600,
+    "response": {
+      "slides": [
+        {
+          "id": 1,
+          "title": "为什么要并行重构？",
+          "content": "- 降低耦合\\n- 加速迭代\\n- 明确边界",
+          "visualDescription": "A minimalist 16:9 slide, dark background, neon accent lines, a simple diagram showing frontend and backend developing in parallel"
+        },
+        {
+          "id": 2,
+          "title": "契约先行",
+          "content": "- OpenAPI 作为单一真相\\n- Mock 先跑起来\\n- 联调只做验证",
+          "visualDescription": "A clean infographic of an API contract document in the center, with arrows to frontend and backend"
+        }
+      ]
+    }
+  },
+  "POST /api/v1/presentations/generate-image": {
+    "delayMs": 800,
+    "response": {
+      "imageBase64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    }
+  },
+  "POST /api/v1/presentations/generate-images": {
+    "delayMs": 900,
+    "response": {
+      "slides": [
+        { "id": 1, "status": "success", "imageBase64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" },
+        { "id": 2, "status": "error", "imageBase64": null, "error": "Mocked generation failure" }
+      ]
+    }
+  },
+  "POST /api/v1/presentations/export/pptx": {
+    "delayMs": 400,
+    "response": {
+      "fileUrl": "/downloads/mock-presentation.pptx"
+    }
+  },
+  "POST /api/v1/presentations/export/pdf": {
+    "delayMs": 400,
+    "response": {
+      "fileUrl": "/downloads/mock-presentation.pdf"
+    }
+  }
+}
+

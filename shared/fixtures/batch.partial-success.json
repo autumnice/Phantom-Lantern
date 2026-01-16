@@ -1,0 +1,17 @@
+{
+  "slides": [
+    {
+      "id": 1,
+      "status": "success",
+      "imageBase64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "error": null
+    },
+    {
+      "id": 2,
+      "status": "error",
+      "imageBase64": null,
+      "error": "Mocked generation failure"
+    }
+  ]
+}
+

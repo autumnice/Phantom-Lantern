@@ -5,8 +5,9 @@ import { InputStep, PlanningStep, PreviewStep } from './components/steps';
 import { SlideEditModal } from './components/slides';
 import { LoadingOverlay, ConfirmModal } from './components/common';
 import { useImageGeneration, useSlidePlan, useExport } from './hooks';
-import { STYLES, DETAIL_LEVELS } from './constants';
-import type { AppStep, SlideImage } from './types';
+import { apiClient } from './services/api';
+import { STYLES } from './constants';
+import type { SlideImage } from './types';
 
 // ==================== Main App Component ====================
 
@@ -17,18 +18,27 @@ const AppContent: React.FC = () => {
   const { generateAllSlides, generateSingleSlide } = useImageGeneration();
   const { exportToPPTX, exportToPDF } = useExport();
 
-  // 初始化 API Key 检查
+  // 初始化：检查后端服务是否可用
   useEffect(() => {
-    const checkApiKey = async () => {
-      if (typeof window !== 'undefined' && (window as any).aistudio?.hasSelectedApiKey) {
-        const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-        dispatch({ type: 'SET_HAS_KEY', payload: hasKey });
-      } else {
+    const checkBackendHealth = async () => {
+      try {
+        await apiClient.health();
         dispatch({ type: 'SET_HAS_KEY', payload: true });
+      } catch (error) {
+        console.warn('Backend health check failed:', error);
+        // 后端不可用时仍允许使用（mock-server 可能未启动）
+        dispatch({ type: 'SET_HAS_KEY', payload: true });
+      } finally {
+        console.log('Backend health check finished, clearing loading state');
+        // 确保初始化完成后不显示加载遮罩
+        dispatch({
+          type: 'SET_LOADING',
+          payload: { isLoading: false }
+        });
       }
     };
 
-    checkApiKey();
+    checkBackendHealth();
   }, [dispatch]);
 
   // 处理配置提交（生成大纲）
@@ -51,12 +61,9 @@ const AppContent: React.FC = () => {
       dispatch({ type: 'SET_STEP', payload: 'planning' });
     } catch (error: any) {
       console.error('Plan generation error:', error);
-      if (error.code === 'BILLING_NOT_ENABLED') {
-        dispatch({ type: 'SET_HAS_KEY', payload: false });
-        alert('所选 API 密钥的项目未启用计费，请重新选择以使用 Pro 模型。');
-      } else {
-        alert('大纲规划失败。请检查内容或重试。');
-      }
+      // 显示用户友好的错误消息
+      const errorMsg = error.message || '大纲规划失败。请检查内容或重试。';
+      alert(errorMsg);
     } finally {
       dispatch({
         type: 'SET_LOADING',
@@ -189,42 +196,9 @@ const AppContent: React.FC = () => {
     }
   };
 
-  // API Key 检查
-  if (state.hasKey === false) {
-    return (
-      <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center mb-6">
-          <i className="fa-solid fa-key text-3xl text-indigo-500"></i>
-        </div>
-        <h2 className="text-2xl font-bold mb-4">需要连接付费 API 密钥</h2>
-        <p className="text-gray-400 mb-8 max-w-sm">
-          4K 图像生成和 Pro 模型需要使用开启了计费功能的 GCP 项目 API 密钥。
-        </p>
-        <Button
-          variant="primary"
-          size="lg"
-          onClick={async () => {
-            if ((window as any).aistudio?.openSelectKey) {
-              await (window as any).aistudio.openSelectKey();
-              dispatch({ type: 'SET_HAS_KEY', payload: true });
-            }
-          }}
-        >
-          连接密钥
-        </Button>
-        <a
-          href="https://ai.google.dev/gemini-api/docs/billing"
-          target="_blank"
-          className="mt-4 text-xs text-indigo-400 hover:underline"
-        >
-          了解计费文档
-        </a>
-      </div>
-    );
-  }
-
+  // 初始化加载检查
   if (state.hasKey === null) {
-    return <LoadingOverlay message="正在检查 API 密钥..." />;
+    return <LoadingOverlay title="正在连接" message="正在连接服务..." />;
   }
 
   return (
@@ -235,7 +209,7 @@ const AppContent: React.FC = () => {
       ) : (
         <SimpleHeader
           title="NanoDeck AI"
-          onBack={state.step === 'preview' ? () => dispatch({ type: 'SET_STEP', payload: 'planning' }) : undefined}
+          onBack={() => dispatch({ type: 'SET_STEP', payload: state.step === 'preview' ? 'planning' : 'input' })}
           onHome={handleReturnHome}
         />
       )}

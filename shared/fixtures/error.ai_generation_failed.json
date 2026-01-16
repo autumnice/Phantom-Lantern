@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "AI_GENERATION_FAILED",
+    "message": "AI generation failed",
+    "details": {
+      "reason": "mocked"
+    },
+    "requestId": "req_mock_001"
+  }
+}
+

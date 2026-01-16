@@ -1,0 +1,11 @@
+{
+  "slides": [
+    {
+      "id": 1,
+      "title": "示例标题",
+      "content": "- 要点 1\n- 要点 2\n- 要点 3",
+      "visualDescription": "A clean 16:9 slide with a simple icon and minimal text layout"
+    }
+  ]
+}
+

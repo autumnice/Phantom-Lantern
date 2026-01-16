@@ -1,5 +1,7 @@
 # NanoDeck AI 并行开发架构设计
 
+> 说明：本文件是较早的 worktree 方案草案。当前并行重构以 [parallel-refactor-v2.md](file:///Users/gude/codeup/Phantom-Lantern/docs/refactoring-plan/parallel-refactor-v2.md) 为准，优先采用单仓库落地（shared/mock/backend 同仓库），后续如有必要再拆 worktree。
+
 ## 概述
 
 支持前后端独立并行开发的架构设计，使用 Git Worktree 和 Mock Server 实现解耦合发。

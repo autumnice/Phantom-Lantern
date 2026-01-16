@@ -1,0 +1,12 @@
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Validation error",
+    "details": {
+      "field": "slideCount",
+      "reason": "must be between 1 and 20"
+    },
+    "requestId": "req_mock_validation_001"
+  }
+}
+

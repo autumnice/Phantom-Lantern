@@ -1,0 +1,349 @@
+openapi: 3.0.3
+info:
+  title: Phantom-Lantern API
+  version: 0.1.0
+  description: |
+    并行重构的最小 API 契约草案（v1）。
+    目标是让前端可对着 mock 独立开发，后端可对着契约独立实现。
+servers:
+  - url: http://localhost:3001
+    description: mock-server
+  - url: http://localhost:8000
+    description: python backend
+
+tags:
+  - name: health
+  - name: presentations
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/v1/presentations/plan:
+    post:
+      tags: [presentations]
+      summary: Generate presentation plan
+      operationId: generatePresentationPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GeneratePlanRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratePlanResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/v1/presentations/generate-image:
+    post:
+      tags: [presentations]
+      summary: Generate a single image
+      operationId: generateImage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateImageRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateImageResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/v1/presentations/generate-images:
+    post:
+      tags: [presentations]
+      summary: Generate images in batch
+      operationId: generateImagesBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateImagesBatchRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateImagesBatchResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/v1/presentations/export/pptx:
+    post:
+      tags: [presentations]
+      summary: Export PPTX
+      operationId: exportPptx
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/v1/presentations/export/pdf:
+    post:
+      tags: [presentations]
+      summary: Export PDF
+      operationId: exportPdf
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+components:
+  responses:
+    ErrorResponse:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    ErrorCode:
+      type: string
+      enum:
+        - VALIDATION_ERROR
+        - AI_GENERATION_FAILED
+        - AI_RATE_LIMITED
+        - AI_TIMEOUT
+        - EXPORT_FAILED
+        - INTERNAL_ERROR
+
+    ErrorObject:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        requestId:
+          type: string
+
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorObject"
+
+    AspectRatio:
+      type: string
+      enum: ["16:9", "4:3", "1:1", "3:4", "9:16"]
+
+    ImageSize:
+      type: string
+      enum: ["1K", "2K", "4K"]
+
+    SlidePlan:
+      type: object
+      additionalProperties: false
+      required: [id, title, content, visualDescription]
+      properties:
+        id:
+          type: integer
+          format: int32
+          minimum: 1
+        title:
+          type: string
+        content:
+          type: string
+          description: Markdown string
+        visualDescription:
+          type: string
+          description: English prompt for image generation
+
+    GeneratePlanRequest:
+      type: object
+      additionalProperties: false
+      required: [content, slideCount, aspectRatio, stylePrompt, detailLevel]
+      properties:
+        content:
+          type: string
+          description: 用户输入文本或 URL
+        slideCount:
+          type: integer
+          minimum: 1
+          maximum: 20
+        aspectRatio:
+          $ref: "#/components/schemas/AspectRatio"
+        stylePrompt:
+          type: string
+        detailLevel:
+          type: string
+        useSearch:
+          type: boolean
+          default: false
+
+    GeneratePlanResponse:
+      type: object
+      additionalProperties: false
+      required: [slides]
+      properties:
+        slides:
+          type: array
+          items:
+            $ref: "#/components/schemas/SlidePlan"
+
+    GenerateImageRequest:
+      type: object
+      additionalProperties: false
+      required: [prompt, aspectRatio, imageSize]
+      properties:
+        prompt:
+          type: string
+        aspectRatio:
+          $ref: "#/components/schemas/AspectRatio"
+        imageSize:
+          $ref: "#/components/schemas/ImageSize"
+
+    GenerateImageResponse:
+      type: object
+      additionalProperties: false
+      required: [imageBase64]
+      properties:
+        imageBase64:
+          type: string
+          description: data URL or base64 string
+
+    GenerateImagesBatchRequest:
+      type: object
+      additionalProperties: false
+      required: [slides, aspectRatio, imageSize]
+      properties:
+        slides:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, prompt]
+            properties:
+              id:
+                type: integer
+              prompt:
+                type: string
+        aspectRatio:
+          $ref: "#/components/schemas/AspectRatio"
+        imageSize:
+          $ref: "#/components/schemas/ImageSize"
+
+    GenerateImagesBatchResponse:
+      type: object
+      additionalProperties: false
+      required: [slides]
+      properties:
+        slides:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, status]
+            properties:
+              id:
+                type: integer
+              status:
+                type: string
+                enum: [success, error]
+              imageBase64:
+                type: string
+                nullable: true
+              error:
+                type: string
+                nullable: true
+
+    ExportSlide:
+      type: object
+      additionalProperties: true
+      required: [id]
+      properties:
+        id:
+          type: integer
+
+    ExportRequest:
+      type: object
+      additionalProperties: false
+      required: [slides, aspectRatio]
+      properties:
+        slides:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportSlide"
+        aspectRatio:
+          $ref: "#/components/schemas/AspectRatio"
+
+    ExportResponse:
+      type: object
+      additionalProperties: false
+      required: [fileUrl]
+      properties:
+        fileUrl:
+          type: string

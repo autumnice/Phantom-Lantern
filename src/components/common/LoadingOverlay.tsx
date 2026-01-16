@@ -48,14 +48,14 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
 
   if (variant === 'minimal') {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/60 backdrop-blur-sm">
-        <div className="flex flex-col items-center gap-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+        <div className="flex flex-col items-center gap-4 bg-gray-950/80 backdrop-blur-sm p-6 rounded-2xl shadow-2xl border border-gray-800/50">
           <div className="relative">
             <div className="w-12 h-12 border-4 border-indigo-500/20 rounded-full"></div>
             <div className="absolute inset-0 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
           </div>
           {message && (
-            <p className="text-gray-400 text-sm">{message}</p>
+            <p className="text-gray-200 text-sm font-medium">{message}</p>
           )}
         </div>
       </div>
