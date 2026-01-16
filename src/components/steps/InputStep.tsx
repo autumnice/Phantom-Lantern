@@ -127,10 +127,6 @@ export const InputStep: React.FC<InputStepProps> = ({
     onConfigChange({ ...config, text: newText });
   };
 
-  const currentStyle = config.selectedStyleId === 'custom'
-    ? { name: '自定义', prompt: config.customStylePrompt }
-    : STYLES.find(s => s.id === config.selectedStyleId) || STYLES[0];
-
   return (
     <div className={`max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl border border-gray-700 shadow-2xl ${className}`}>
       <h2 className="text-2xl font-semibold mb-6">配置您的演示文稿</h2>
@@ -259,17 +255,7 @@ export const InputStep: React.FC<InputStepProps> = ({
               }`}
             >
               <div
-                className={`w-full h-8 mb-2 rounded bg-gradient-to-br ${
-                  style.id === 'tech_minimal'
-                    ? 'from-gray-800 to-black'
-                    : style.id === 'corporate_blue'
-                    ? 'from-blue-900 to-blue-700'
-                    : style.id === 'creative_vibrant'
-                    ? 'from-pink-500 to-yellow-500'
-                    : style.id === 'editorial_clean'
-                    ? 'from-gray-200 to-white'
-                    : 'from-green-200 to-teal-200'
-                }`}
+                className={`w-full h-8 mb-2 rounded bg-gradient-to-br ${style.gradient || 'from-gray-800 to-black'}`}
               ></div>
               <div className="text-xs font-medium text-gray-300">{style.name}</div>
             </button>

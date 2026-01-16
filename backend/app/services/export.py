@@ -9,25 +9,8 @@ from typing import List, Optional
 from fastapi import HTTPException
 
 from app.config import get_settings
-from app.schemas.errors import ErrorEnvelope, ErrorObject
 from app.schemas.requests import AspectRatio, ExportSlide
-
-
-def _create_error_response(
-    code: str, message: str, status_code: int, request_id: Optional[str] = None
-) -> HTTPException:
-    """Create HTTPException with ErrorEnvelope body."""
-    error_envelope = ErrorEnvelope(
-        error=ErrorObject(
-            code=code,
-            message=message,
-            requestId=request_id,
-        )
-    )
-    raise HTTPException(
-        status_code=status_code,
-        detail=error_envelope.model_dump(exclude_none=True),
-    )
+from app.services.errors import create_error_response
 
 
 class ExportService:
@@ -56,6 +39,22 @@ class ExportService:
             base64_part = image_data
         return base64.b64decode(base64_part)
 
+    def _generate_filename(self, extension: str) -> tuple[str, Path]:
+        """Generate unique filename and filepath."""
+        filename = f"presentation_{uuid.uuid4().hex[:8]}.{extension}"
+        return filename, self.export_dir / filename
+
+    def _get_image_stream(self, slide_dict: dict) -> Optional[io.BytesIO]:
+        """Extract image stream from slide data, returns None if no image or error."""
+        if not slide_dict.get("imageBase64"):
+            return None
+        try:
+            image_bytes = self._decode_image_data(slide_dict["imageBase64"])
+            return io.BytesIO(image_bytes)
+        except Exception as e:
+            print(f"Error decoding image: {e}")
+            return None
+
     async def export_pptx(
         self,
         slides: List[ExportSlide],
@@ -72,35 +71,19 @@ class ExportService:
             prs = Presentation()
             prs.slide_width = Inches(width)
             prs.slide_height = Inches(height)
-
             blank_layout = prs.slide_layouts[6]
 
             for slide_data in slides:
                 slide_dict = slide_data.model_dump()
                 slide = prs.slides.add_slide(blank_layout)
 
-                if "imageBase64" in slide_dict and slide_dict["imageBase64"]:
-                    try:
-                        image_bytes = self._decode_image_data(slide_dict["imageBase64"])
-                        image_stream = io.BytesIO(image_bytes)
-                        slide.shapes.add_picture(
-                            image_stream,
-                            Inches(0),
-                            Inches(0),
-                            width=Inches(width),
-                            height=Inches(height),
-                        )
-                    except Exception as img_err:
-                        print(f"Error adding image to PPTX: {img_err}")
-                        pass
+                image_stream = self._get_image_stream(slide_dict)
+                if image_stream:
+                    slide.shapes.add_picture(image_stream, Inches(0), Inches(0), width=Inches(width), height=Inches(height))
 
                 title = slide_dict.get("title", "")
                 if title:
-                    left = Inches(0.5)
-                    top = Inches(0.5)
-                    box_width = Inches(width - 1)
-                    box_height = Inches(1)
-                    title_box = slide.shapes.add_textbox(left, top, box_width, box_height)
+                    title_box = slide.shapes.add_textbox(Inches(0.5), Inches(0.5), Inches(width - 1), Inches(1))
                     title_frame = title_box.text_frame
                     title_frame.paragraphs[0].text = title
                     title_frame.paragraphs[0].font.size = Pt(36)
@@ -109,31 +92,20 @@ class ExportService:
 
                 content = slide_dict.get("content", "")
                 if content:
-                    left = Inches(0.5)
-                    top = Inches(1.8)
-                    box_width = Inches(width - 1)
-                    box_height = Inches(height - 2.5)
-                    content_box = slide.shapes.add_textbox(left, top, box_width, box_height)
+                    content_box = slide.shapes.add_textbox(Inches(0.5), Inches(1.8), Inches(width - 1), Inches(height - 2.5))
                     content_frame = content_box.text_frame
                     content_frame.word_wrap = True
                     content_frame.paragraphs[0].text = content
                     content_frame.paragraphs[0].font.size = Pt(18)
 
-            filename = f"presentation_{uuid.uuid4().hex[:8]}.pptx"
-            filepath = self.export_dir / filename
+            filename, filepath = self._generate_filename("pptx")
             prs.save(str(filepath))
-
             return f"/exports/{filename}"
 
         except Exception as e:
             import traceback
             traceback.print_exc()
-            _create_error_response(
-                "EXPORT_FAILED",
-                f"Failed to export PPTX: {str(e)}",
-                500,
-                request_id,
-            )
+            create_error_response("EXPORT_FAILED", f"Failed to export PPTX: {str(e)}", 500, request_id)
 
     async def export_pdf(
         self,
@@ -148,27 +120,16 @@ class ExportService:
             from reportlab.lib.utils import ImageReader
 
             width_inches, height_inches = self._get_slide_dimensions(aspect_ratio)
-            page_width = width_inches * inch
-            page_height = height_inches * inch
-
-            filename = f"presentation_{uuid.uuid4().hex[:8]}.pdf"
-            filepath = self.export_dir / filename
-
+            page_width, page_height = width_inches * inch, height_inches * inch
+            filename, filepath = self._generate_filename("pdf")
             c = canvas.Canvas(str(filepath), pagesize=(page_width, page_height))
 
             for slide_data in slides:
                 slide_dict = slide_data.model_dump()
 
-                if "imageBase64" in slide_dict and slide_dict["imageBase64"]:
-                    try:
-                        image_bytes = self._decode_image_data(slide_dict["imageBase64"])
-                        image_stream = io.BytesIO(image_bytes)
-                        # 直接传入字节流，保留原始图片压缩格式
-                        img_reader = ImageReader(image_stream)
-                        c.drawImage(img_reader, 0, 0, width=page_width, height=page_height)
-                    except Exception as img_err:
-                        print(f"Error adding image to PDF: {img_err}")
-                        pass
+                image_stream = self._get_image_stream(slide_dict)
+                if image_stream:
+                    c.drawImage(ImageReader(image_stream), 0, 0, width=page_width, height=page_height)
 
                 title = slide_dict.get("title", "")
                 if title:
@@ -191,12 +152,7 @@ class ExportService:
         except Exception as e:
             import traceback
             traceback.print_exc()
-            _create_error_response(
-                "EXPORT_FAILED",
-                f"Failed to export PDF: {str(e)}",
-                500,
-                request_id,
-            )
+            create_error_response("EXPORT_FAILED", f"Failed to export PDF: {str(e)}", 500, request_id)
 
 
 _export_service: Optional[ExportService] = None

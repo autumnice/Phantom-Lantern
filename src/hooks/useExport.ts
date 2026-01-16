@@ -27,54 +27,10 @@ export interface ExportOptions {
  * - 后端负责生成 PPTX/PDF 文件
  * - 前端只负责触发与下载
  */
-export const useExport = (): UseExportReturn => {
+export function useExport(): UseExportReturn {
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportError, setExportError] = useState<string | null>(null);
-
-  const resetExportState = useCallback(() => {
-    setIsExporting(false);
-    setExportProgress(0);
-    setExportError(null);
-  }, []);
-
-  /**
-   * 下载文件
-   * 使用 fetch + blob 方式确保触发下载而非在浏览器中打开
-   */
-  const downloadFile = useCallback(async (fileUrl: string, fileName: string) => {
-    // 如果是相对路径，补全为完整 URL
-    const fullUrl = fileUrl.startsWith('http')
-      ? fileUrl
-      : `${apiClient.getBaseUrl()}${fileUrl}`;
-
-    try {
-      // 获取文件内容
-      const response = await fetch(fullUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to download: ${response.status}`);
-      }
-
-      // 转换为 blob
-      const blob = await response.blob();
-
-      // 创建 blob URL 并下载
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = fileName;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-
-      // 清理
-      document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
-    } catch (error) {
-      console.error('Download file error:', error);
-      throw error;
-    }
-  }, []);
 
   /**
    * 准备导出数据
@@ -89,9 +45,40 @@ export const useExport = (): UseExportReturn => {
       }));
   }, []);
 
-  // 导出到 PPTX - 调用后端 API
-  const exportToPPTX = useCallback(
-    async (options: ExportOptions) => {
+  /**
+   * 下载文件
+   */
+  const downloadFile = useCallback(async (fileUrl: string, fileName: string) => {
+    const fullUrl = fileUrl.startsWith('http')
+      ? fileUrl
+      : `${apiClient.getBaseUrl()}${fileUrl}`;
+
+    const response = await fetch(fullUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = fileName;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(blobUrl);
+  }, []);
+
+  /**
+   * 通用导出逻辑
+   */
+  const exportFile = useCallback(
+    async (
+      options: ExportOptions,
+      exportFn: typeof apiClient.exportPptx | typeof apiClient.exportPdf,
+      defaultExtension: string
+    ) => {
       const { slides, aspectRatio, fileName } = options;
 
       const validSlides = prepareExportSlides(slides);
@@ -106,25 +93,19 @@ export const useExport = (): UseExportReturn => {
       try {
         setExportProgress(30);
 
-        // 调用后端 API
-        const response = await apiClient.exportPptx({
-          slides: validSlides,
-          aspectRatio,
-        });
+        const response = await exportFn({ slides: validSlides, aspectRatio });
 
         setExportProgress(80);
 
-        // 下载文件
-        const finalFileName = fileName || `NanoDeck-${Date.now()}.pptx`;
+        const finalFileName = fileName || `NanoDeck-${Date.now()}.${defaultExtension}`;
         await downloadFile(response.fileUrl, finalFileName);
 
         setExportProgress(100);
-        resetExportState();
+        setIsExporting(false);
+        setExportProgress(0);
+        setExportError(null);
       } catch (error) {
-        console.error('Export PPTX error:', error);
-        if (error instanceof ApiError) {
-            console.error('ApiError details:', error.details);
-        }
+        console.error(`Export ${defaultExtension} error:`, error);
 
         const errorMessage =
           error instanceof ApiError
@@ -138,59 +119,17 @@ export const useExport = (): UseExportReturn => {
         throw error;
       }
     },
-    [prepareExportSlides, downloadFile, resetExportState]
+    [prepareExportSlides, downloadFile]
   );
 
-  // 导出到 PDF - 调用后端 API
+  const exportToPPTX = useCallback(
+    (options: ExportOptions) => exportFile(options, apiClient.exportPptx, 'pptx'),
+    [exportFile]
+  );
+
   const exportToPDF = useCallback(
-    async (options: ExportOptions) => {
-      const { slides, aspectRatio, fileName } = options;
-
-      const validSlides = prepareExportSlides(slides);
-      if (validSlides.length === 0) {
-        throw new Error('没有可导出的幻灯片');
-      }
-
-      setIsExporting(true);
-      setExportProgress(0);
-      setExportError(null);
-
-      try {
-        setExportProgress(30);
-
-        // 调用后端 API
-        const response = await apiClient.exportPdf({
-          slides: validSlides,
-          aspectRatio,
-        });
-
-        setExportProgress(80);
-
-        // 下载文件
-        const finalFileName = fileName || `NanoDeck-${Date.now()}.pdf`;
-        await downloadFile(response.fileUrl, finalFileName);
-
-        setExportProgress(100);
-        resetExportState();
-      } catch (error) {
-        console.error('Export PDF error:', error);
-        if (error instanceof ApiError) {
-            console.error('ApiError details:', error.details);
-        }
-
-        const errorMessage =
-          error instanceof ApiError
-            ? error.userMessage
-            : error instanceof Error
-            ? error.message
-            : '导出失败';
-
-        setExportError(errorMessage);
-        setIsExporting(false);
-        throw error;
-      }
-    },
-    [prepareExportSlides, downloadFile, resetExportState]
+    (options: ExportOptions) => exportFile(options, apiClient.exportPdf, 'pdf'),
+    [exportFile]
   );
 
   return {
@@ -200,49 +139,13 @@ export const useExport = (): UseExportReturn => {
     exportProgress,
     exportError,
   };
-};
+}
 
 // ==================== Helper Hooks ====================
 
 /**
  * 检查是否可以导出
  */
-export const useCanExport = (slides: SlideImage[]): boolean => {
+export function useCanExport(slides: SlideImage[]): boolean {
   return slides.some((slide) => slide.base64 && slide.status === 'done');
-};
-
-/**
- * 获取导出统计
- */
-export const useExportStats = (slides: SlideImage[]) => {
-  const total = slides.length;
-  const completed = slides.filter((s) => s.status === 'done').length;
-  const canExport = completed > 0;
-
-  return {
-    total,
-    completed,
-    canExport,
-    pending: total - completed,
-  };
-};
-
-/**
- * 获取支持的导出格式
- */
-export const useSupportedFormats = () => {
-  return [
-    {
-      id: 'pptx',
-      name: 'PowerPoint',
-      icon: 'fa-file-powerpoint',
-      color: 'orange',
-    },
-    {
-      id: 'pdf',
-      name: 'PDF',
-      icon: 'fa-file-pdf',
-      color: 'red',
-    },
-  ];
-};
+}

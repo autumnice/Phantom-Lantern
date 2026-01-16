@@ -6,6 +6,7 @@ export interface StyleConfig {
   id: string;
   name: string;
   prompt: string;
+  gradient?: string;
 }
 
 export interface DetailLevel {

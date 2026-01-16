@@ -5,8 +5,7 @@ import type {
   InputConfig,
   AppStep,
   ImageSize,
-  StyleConfig,
-  DetailLevel
+  StyleConfig
 } from '../types';
 import { STYLES, DETAIL_LEVELS } from '../constants';
 
@@ -229,8 +228,7 @@ export const useAppContext = (): AppContextValue => {
 
 // ==================== Selectors ====================
 
-// 获取当前风格配置
-export const useCurrentStyle = (state: AppState): StyleConfig => {
+export function useCurrentStyle(state: AppState): StyleConfig {
   const { selectedStyleId, customStylePrompt } = state.inputConfig;
 
   if (selectedStyleId === 'custom') {
@@ -241,43 +239,15 @@ export const useCurrentStyle = (state: AppState): StyleConfig => {
     };
   }
 
-  return (
-    STYLES.find(s => s.id === selectedStyleId) || STYLES[0]
-  );
-};
+  return STYLES.find(s => s.id === selectedStyleId) || STYLES[0];
+}
 
-// 获取当前详细度配置
-export const useCurrentDetailLevel = (state: AppState): DetailLevel => {
-  return (
-    DETAIL_LEVELS.find(d => d.id === state.inputConfig.detailLevelId) ||
-    DETAIL_LEVELS[1]
-  );
-};
-
-// 获取幻灯片总数
-export const useSlideCount = (state: AppState): number => {
-  return state.inputConfig.slideCount;
-};
-
-// 获取已完成幻灯片数
-export const useCompletedSlidesCount = (state: AppState): number => {
-  return state.slides.filter(slide => slide.status === 'done').length;
-};
-
-// 获取生成进度百分比
-export const useGenerationProgress = (state: AppState): number => {
+export function useGenerationProgress(state: AppState): number {
   if (state.slides.length === 0) return 0;
-  const completed = useCompletedSlidesCount(state);
+  const completed = state.slides.filter(slide => slide.status === 'done').length;
   return Math.round((completed / state.slides.length) * 100);
-};
+}
 
-// 检查是否有错误
-export const useHasErrors = (state: AppState): boolean => {
+export function useHasErrors(state: AppState): boolean {
   return state.slides.some(slide => slide.status === 'error');
-};
-
-// 检查是否所有幻灯片都已完成
-export const useAllSlidesCompleted = (state: AppState): boolean => {
-  return state.slides.length > 0 &&
-         state.slides.every(slide => slide.status === 'done');
-};
+}

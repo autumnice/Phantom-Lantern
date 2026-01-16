@@ -47,9 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(presentations.router, prefix="/api/v1/presentations")
 
-    export_dir = Path(settings.export_dir)
-    export_dir.mkdir(parents=True, exist_ok=True)
-    app.mount("/exports", StaticFiles(directory=str(export_dir)), name="exports")
+    app.mount("/exports", StaticFiles(directory=str(Path(settings.export_dir))), name="exports")
 
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):

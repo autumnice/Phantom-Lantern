@@ -148,20 +148,26 @@ export const SlideCard: React.FC<SlideCardProps> = ({
       </div>
 
       {/* 状态指示器 */}
-      {slide.status === 'done' && (
-        <div className="absolute top-2 right-2 w-2 h-2 bg-green-500 rounded-full shadow-lg shadow-green-500/50 animate-pulse"></div>
-      )}
-
-      {slide.status === 'error' && (
-        <div className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full shadow-lg shadow-red-500/50"></div>
-      )}
-
-      {slide.status === 'generating' && (
-        <div className="absolute top-2 right-2 w-2 h-2 bg-indigo-500 rounded-full shadow-lg shadow-indigo-500/50 animate-pulse"></div>
-      )}
+      {renderStatusIndicator(slide.status)}
     </div>
   );
 };
+
+function renderStatusIndicator(status: SlideImage['status']): React.ReactNode {
+  const statusStyles: Record<string, string> = {
+    done: 'bg-green-500 shadow-green-500/50 animate-pulse',
+    error: 'bg-red-500 shadow-red-500/50',
+    generating: 'bg-indigo-500 shadow-indigo-500/50 animate-pulse',
+    retrying: 'bg-indigo-500 shadow-indigo-500/50 animate-pulse',
+  };
+
+  const style = statusStyles[status];
+  if (!style) return null;
+
+  return (
+    <div className={`absolute top-2 right-2 w-2 h-2 rounded-full shadow-lg ${style}`} />
+  );
+}
 
 // ==================== 快捷组件 ====================
 

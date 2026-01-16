@@ -4,31 +4,14 @@ import asyncio
 import base64
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from fastapi import HTTPException
 
 from app.config import get_settings
-from app.schemas.errors import ErrorEnvelope, ErrorObject
 from app.schemas.requests import AspectRatio, BatchSlideInput, ImageSize
 from app.schemas.responses import BatchSlideResult, SlidePlan
-
-
-def _create_error_response(
-    code: str, message: str, status_code: int, request_id: Optional[str] = None
-) -> HTTPException:
-    """Create HTTPException with ErrorEnvelope body."""
-    error_envelope = ErrorEnvelope(
-        error=ErrorObject(
-            code=code,
-            message=message,
-            requestId=request_id,
-        )
-    )
-    raise HTTPException(
-        status_code=status_code,
-        detail=error_envelope.model_dump(exclude_none=True),
-    )
+from app.services.errors import create_error_response
 
 
 class GeminiService:
@@ -129,19 +112,34 @@ Important:
             return slides
 
         except json.JSONDecodeError as e:
-            _create_error_response(
+            create_error_response(
                 "AI_GENERATION_FAILED",
                 f"Failed to parse AI response as JSON: {str(e)}",
                 500,
                 request_id,
             )
         except Exception as e:
-            _create_error_response(
+            create_error_response(
                 "AI_GENERATION_FAILED",
                 f"Failed to process AI response: {str(e)}",
                 500,
                 request_id,
             )
+
+    def _handle_api_error(self, e: Exception, request_id: Optional[str], context: str = "AI generation") -> None:
+        """Handle common API errors with appropriate error responses."""
+        error_message = str(e).lower()
+        if "rate" in error_message or "quota" in error_message:
+            create_error_response("AI_RATE_LIMITED", "API rate limit exceeded", 429, request_id)
+        elif "timeout" in error_message:
+            create_error_response("AI_TIMEOUT", "Request timed out", 504, request_id)
+        else:
+            create_error_response("AI_GENERATION_FAILED", f"{context} failed: {str(e)}", 500, request_id)
+
+    def _ensure_api_key(self, request_id: Optional[str]) -> None:
+        """Ensure API key is configured."""
+        if not self.api_key:
+            create_error_response("INTERNAL_ERROR", "Gemini API key is not configured", 500, request_id)
 
     async def generate_plan(
         self,
@@ -154,13 +152,7 @@ Important:
         request_id: Optional[str] = None,
     ) -> List[SlidePlan]:
         """Generate presentation plan using Gemini."""
-        if not self.api_key:
-            _create_error_response(
-                "INTERNAL_ERROR",
-                "Gemini API key is not configured",
-                500,
-                request_id,
-            )
+        self._ensure_api_key(request_id)
 
         try:
             client = self._get_client()
@@ -173,25 +165,14 @@ Important:
             )
 
             if not response.text:
-                _create_error_response(
-                    "AI_GENERATION_FAILED",
-                    "Empty response from AI model",
-                    500,
-                    request_id,
-                )
+                create_error_response("AI_GENERATION_FAILED", "Empty response from AI model", 500, request_id)
 
             return self._parse_plan_response(response.text, request_id)
 
         except HTTPException:
             raise
         except Exception as e:
-            error_message = str(e).lower()
-            if "rate" in error_message or "quota" in error_message:
-                _create_error_response("AI_RATE_LIMITED", "API rate limit exceeded", 429, request_id)
-            elif "timeout" in error_message:
-                _create_error_response("AI_TIMEOUT", "Request timed out", 504, request_id)
-            else:
-                _create_error_response("AI_GENERATION_FAILED", f"AI generation failed: {str(e)}", 500, request_id)
+            self._handle_api_error(e, request_id, "AI generation")
 
     async def generate_image(
         self,
@@ -201,20 +182,12 @@ Important:
         request_id: Optional[str] = None,
     ) -> str:
         """Generate a single image using Gemini."""
-        if not self.api_key:
-            _create_error_response(
-                "INTERNAL_ERROR",
-                "Gemini API key is not configured",
-                500,
-                request_id,
-            )
+        self._ensure_api_key(request_id)
 
         try:
             client = self._get_client()
             from google.genai import types
 
-            # align with frontend: use gemini-3-pro-image-preview and image_config
-            # Direct pass-through of the prompt without extra wrapping to match TS behavior
             response = await asyncio.to_thread(
                 client.models.generate_content,
                 model="gemini-3-pro-image-preview",
@@ -235,28 +208,16 @@ Important:
                         if hasattr(part, 'inline_data') and part.inline_data:
                             image_data = part.inline_data.data
                             mime_type = part.inline_data.mime_type or "image/png"
-                            # 如果 data 是 bytes，需要 base64 编码
                             if isinstance(image_data, bytes):
                                 image_data = base64.b64encode(image_data).decode("utf-8")
                             return f"data:{mime_type};base64,{image_data}"
 
-            _create_error_response(
-                "AI_GENERATION_FAILED",
-                "No image data returned from API",
-                500,
-                request_id,
-            )
+            create_error_response("AI_GENERATION_FAILED", "No image data returned from API", 500, request_id)
 
         except HTTPException:
             raise
         except Exception as e:
-            error_message = str(e).lower()
-            if "rate" in error_message or "quota" in error_message:
-                _create_error_response("AI_RATE_LIMITED", "API rate limit exceeded", 429, request_id)
-            elif "timeout" in error_message:
-                _create_error_response("AI_TIMEOUT", "Request timed out", 504, request_id)
-            else:
-                _create_error_response("AI_GENERATION_FAILED", f"Image generation failed: {str(e)}", 500, request_id)
+            self._handle_api_error(e, request_id, "Image generation")
 
     async def generate_images_batch(
         self,
@@ -304,14 +265,6 @@ Important:
 
 _gemini_service: Optional[GeminiService] = None
 
-
-def get_gemini_service() -> GeminiService:
-    """Get or create the Gemini service singleton."""
-    global _gemini_service
-    if _gemini_service is None:
-        settings = get_settings()
-        _gemini_service = GeminiService(api_key=settings.gemini_api_key)
-    return _gemini_service
 
 def get_gemini_service() -> GeminiService:
     """Get or create the Gemini service singleton."""
