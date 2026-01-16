@@ -80,6 +80,23 @@ class TestGeminiServicePromptBuilding:
         assert "High" in prompt
         assert "JSON" in prompt
 
+    def test_build_plan_prompt_includes_consistency_requirements(self, gemini_service):
+        """Test that plan prompt includes consistency requirements."""
+        prompt = gemini_service._build_plan_prompt(
+            content="Test",
+            slide_count=3,
+            style_prompt="Style",
+            detail_level="Normal",
+        )
+        
+        assert "Visual Master Template" in prompt
+        assert "Exact Background Material" in prompt
+        assert "Lighting Condition" in prompt
+        assert "Do NOT vary structural elements" in prompt
+        assert "TITLE/TEXT GUIDELINES" in prompt
+        assert "consistent visual weight" in prompt
+
+
 
 class TestGeminiServiceImageGeneration:
     """Tests for image generation functionality."""

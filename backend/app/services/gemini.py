@@ -64,11 +64,29 @@ Requirements:
 - Detail level: {detail_level}
 - Language: The 'title' and 'content' fields MUST be in the same language as the provided Content (e.g., if Content is in Chinese, output Chinese). The 'visualDescription' MUST be in English.
 
+STRICT VISUAL CONSISTENCY RULES:
+1. Define a strict "Visual Master Template" based on the Style. This template must lock in:
+   - Exact Background Material (e.g., "dark green chalkboard texture without wooden frame")
+   - Lighting Condition (e.g., "flat, even studio lighting, no shadows")
+   - Color Palette (limit to 3-4 specific colors)
+   - Layout Structure (e.g., "centered composition")
+   - Decorative Elements (e.g., "simple white chalk line border at 20px from edge" OR "no borders")
+   - Typography Style (e.g., "handwritten chalk font, white or yellow")
+2. For EVERY slide, the 'visualDescription' MUST start with this exact Master Template description.
+3. Do NOT vary structural elements like frames, lighting, or margins between slides.
+4. Only change the central subject matter corresponding to the slide content.
+
+TITLE/TEXT GUIDELINES:
+- The title text in the image must maintain a consistent visual weight across slides.
+- Allow slight size adjustments based on title length, but AVOID extremely large or overwhelmingly bright text.
+- Title color must strictly follow the Master Template's Color Palette.
+- Do not add random glow or 3D effects to the title unless it is part of the Master Template.
+
 Output a JSON array of slide plans. Each slide must have:
 - id: integer starting from 1
 - title: slide title (concise, compelling, same language as Content)
 - content: markdown-formatted content for the slide (bullet points, key information, same language as Content)
-- visualDescription: detailed English description for generating an image that matches this slide's theme
+- visualDescription: detailed English description for generating an image. Format: "[MASTER TEMPLATE DESCRIPTION]. [SPECIFIC SLIDE CONTENT with Title description]".
 
 Output ONLY valid JSON in this exact format:
 [
@@ -76,12 +94,13 @@ Output ONLY valid JSON in this exact format:
     "id": 1,
     "title": "Introduction",
     "content": "- Key point 1\\n- Key point 2",
-    "visualDescription": "A professional business presentation background with abstract geometric shapes in blue and white tones"
+    "visualDescription": "Dark green chalkboard texture, no wooden frame, flat even lighting, colorful chalk style, simple white chalk line border. In the center, the title 'Introduction' written in standard yellow chalk font, balanced size, no excessive glow."
   }}
 ]
 
 Important:
 - Make each visualDescription detailed enough for image generation (50-100 words, in English)
+- The first sentence of 'visualDescription' MUST be identical across all slides to enforce the Master Template.
 - Content should be informative but concise
 - Titles should be engaging and clear
 - Ensure strict JSON validity"""
